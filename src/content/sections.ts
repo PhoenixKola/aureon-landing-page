@@ -42,7 +42,7 @@ export interface SectionsCopy {
   };
   s04: {
     kicker: string; title: string; lead: string; lanes: Record<RoleId, string>;
-    stepLabel: string; prev: string; next: string; starts: string; note: string;
+    stepLabel: string; prev: string; next: string; starts: string; inView: string; note: string;
     moments: [Moment, Moment, Moment, Moment, Moment];
     outro: string; outroLink: string;
   };
@@ -98,7 +98,7 @@ export const sections: Record<Locale, SectionsCopy> = {
       title: 'One connected day.',
       lead: 'Follow a single day at the club. Each moment starts with one person and shows up in someone else’s view. That is the system at work.',
       lanes: {member: 'Member', desk: 'Front desk', manager: 'Management'},
-      stepLabel: 'Moment', prev: 'Previous moment', next: 'Next moment', starts: 'Starts here', note: 'An illustrative day. Not live data.',
+      stepLabel: 'Moment', prev: 'Previous moment', next: 'Next moment', starts: 'Starts here', inView: 'In view', note: 'An illustrative day. Not live data.',
       moments: [
         {time: '07:10', title: 'Tonight’s class, booked', origin: 'member', lanes: {member: 'Books a place in the 18:30 class from the app.', desk: 'Tonight’s class list includes the booking.', manager: 'The calendar shows the day’s classes.'}},
         {time: '09:30', title: 'An arrival', origin: 'member', lanes: {member: 'Arrives at the club for a morning session.', desk: 'The visit is recorded in Entries.', manager: 'Entries feed the club overview.'}},
@@ -181,7 +181,7 @@ export const sections: Record<Locale, SectionsCopy> = {
       title: 'Një ditë e lidhur.',
       lead: 'Ndiqni një ditë të vetme në palestër. Çdo moment nis nga një person dhe shfaqet në pamjen e dikujt tjetër. Ky është sistemi në punë.',
       lanes: {member: 'Anëtari', desk: 'Recepsioni', manager: 'Drejtimi'},
-      stepLabel: 'Momenti', prev: 'Momenti i mëparshëm', next: 'Momenti tjetër', starts: 'Nis këtu', note: 'Një ditë ilustruese. Pa të dhëna reale.',
+      stepLabel: 'Momenti', prev: 'Momenti i mëparshëm', next: 'Momenti tjetër', starts: 'Nis këtu', inView: 'E sheh', note: 'Një ditë ilustruese. Pa të dhëna reale.',
       moments: [
         {time: '07:10', title: 'Klasa e mbrëmjes, e rezervuar', origin: 'member', lanes: {member: 'Rezervon një vend në klasën e 18:30 nga aplikacioni.', desk: 'Lista e klasës së mbrëmjes përfshin rezervimin.', manager: 'Kalendari tregon klasat e ditës.'}},
         {time: '09:30', title: 'Një mbërritje', origin: 'member', lanes: {member: 'Mbërrin në palestër për një seancë mëngjesi.', desk: 'Vizita regjistrohet te Hyrjet.', manager: 'Hyrjet ushqejnë përmbledhjen e palestrës.'}},
@@ -264,7 +264,7 @@ export const sections: Record<Locale, SectionsCopy> = {
       title: 'Una giornata connessa.',
       lead: 'Segui una sola giornata al club. Ogni momento parte da una persona e compare nella vista di qualcun altro. È il sistema al lavoro.',
       lanes: {member: 'Socio', desk: 'Reception', manager: 'Direzione'},
-      stepLabel: 'Momento', prev: 'Momento precedente', next: 'Momento successivo', starts: 'Parte da qui', note: 'Una giornata illustrativa. Nessun dato reale.',
+      stepLabel: 'Momento', prev: 'Momento precedente', next: 'Momento successivo', starts: 'Parte da qui', inView: 'Lo vede', note: 'Una giornata illustrativa. Nessun dato reale.',
       moments: [
         {time: '07:10', title: 'Il corso di stasera, prenotato', origin: 'member', lanes: {member: 'Prenota un posto nel corso delle 18:30 dall’app.', desk: 'La lista del corso di stasera include la prenotazione.', manager: 'Il calendario mostra i corsi del giorno.'}},
         {time: '09:30', title: 'Un arrivo', origin: 'member', lanes: {member: 'Arriva al club per una sessione mattutina.', desk: 'La visita viene registrata negli Ingressi.', manager: 'Gli ingressi alimentano la panoramica del club.'}},

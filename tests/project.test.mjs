@@ -22,7 +22,7 @@ test('hero assembles a real-time scene and never ships a composite gym photo und
  for(const t of ['dark','light'])for(const s of ['desktop','mobile'])assert.ok(existsSync(`public/assets/hero/gym-${s}-${t}.webp`),`${s}-${t} still`);
  // Pieces arrive in order: floor → rack → bar → plates → bench → dumbbells → trainer → lights → brand.
  const at=label=>{const i=scene.indexOf(label);assert.ok(i>0,label);return i};
- ['1. Foundation','3. Power rack','4. Loaded barbell','5. Flat bench','6. Two-tier','7. Dual-stack','9. Linear pendant','10. Aureon chevron'].reduce((prev,label)=>{const i=at(label);assert.ok(i>prev,label);return i},0);
+ ['1. Foundation','2. Power rack','3. Loaded barbell','5. Flat bench','6. Two-tier','7. Dual-stack','9. Linear pendant','10. Aureon chevron'].reduce((prev,label)=>{const i=at(label);assert.ok(i>prev,label);return i},0);
 });
 test('replay control is removed everywhere',()=>{
  for(const f of ['src/components/hero/Hero.tsx','src/content/dictionary.ts','app/globals.css','src/components/icons.tsx'])assert.ok(!/replay/i.test(read(f)),f);
@@ -61,7 +61,10 @@ test('hero fallback stills stay lightweight',()=>{
 });
 
 test('sections 02–04 copy is complete and parallel in EN/SQ/IT',async()=>{
- const {sections}=await import('../src/content/sections.ts');
+ // Transpile with the project's own TypeScript so this runs on every supported Node (no type-stripping flag needed).
+ const ts=(await import('typescript')).default;
+ const js=ts.transpileModule(read('src/content/sections.ts'),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+ const {sections}=await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
  const shape=v=>Array.isArray(v)?v.map(shape):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,shape(v[k])])):v===null?null:typeof v;
  assert.deepEqual(shape(sections.sq),shape(sections.en));
  assert.deepEqual(shape(sections.it),shape(sections.en));

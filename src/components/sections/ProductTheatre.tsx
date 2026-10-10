@@ -45,7 +45,7 @@ export function ProductTheatre({c}: {c: SectionsCopy['s03']}) {
       </div>
     </div>
 
-    <div className="theatre-stage" id="role-panel" role="tabpanel" aria-labelledby={`role-tab-${role.id}`} aria-describedby="role-story">
+    <div className={`theatre-stage${role.id === 'member' ? ' is-phone' : ''}`} id="role-panel" role="tabpanel" aria-labelledby={`role-tab-${role.id}`} aria-describedby="role-story">
       <p className="theatre-disclosure"><Info strokeWidth={1.7} aria-hidden="true"/>{c.disclosure}</p>
       <div className={`device device-${role.id === 'member' ? 'phone' : 'desktop'}`} data-focus={focus ?? undefined} aria-hidden="true">
         <div className="device-screen" key={role.id}>

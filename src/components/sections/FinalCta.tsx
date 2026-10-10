@@ -1,5 +1,5 @@
 import {ArrowDown, ArrowRight, ArrowUpRight, Info} from 'lucide-react';
-import {BrandMark} from '@/components/icons';
+import {DayNightFigure} from '@/components/sections/DayNightFigure';
 import {MagneticLink} from '@/components/sections/MagneticLink';
 import type {SectionsCopy} from '@/content/sections';
 
@@ -26,10 +26,7 @@ export function FinalCta({c, appEntryUrl}: {c: SectionsCopy['s06']; appEntryUrl:
             {c.revisitLinks.map(([id, label], i) => <a key={id} href={`#${id}`}><b>0{i + 2}</b>{label}<ArrowDown strokeWidth={1.8} aria-hidden="true"/></a>)}
           </nav>
         </div>
-        <figure className="s06-figure" data-reveal-item aria-hidden="true">
-          <img src="/assets/hero/gym-desktop-dark.webp" alt="" width={1920} height={1080} loading="lazy" decoding="async"/>
-          <figcaption><BrandMark/>{c.caption}</figcaption>
-        </figure>
+        <DayNightFigure caption={c.caption} times={['07:10', '22:00']}/>
       </div>
     </div>
     <div className="s06-steps" aria-hidden="true"><i/><i/><i/></div>

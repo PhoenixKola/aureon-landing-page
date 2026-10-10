@@ -1,5 +1,5 @@
 'use client';
-import {useRef, useState, type KeyboardEvent} from 'react';
+import {useRef, useState, type CSSProperties, type KeyboardEvent} from 'react';
 import {ArrowDown, ChevronLeft, ChevronRight, ConciergeBell, Info, LayoutDashboard, Smartphone, type LucideIcon} from 'lucide-react';
 import type {RoleId, SectionsCopy} from '@/content/sections';
 
@@ -18,12 +18,24 @@ export function ConnectedDay({c}: {c: SectionsCopy['s04']}) {
     e.preventDefault(); go(map[e.key], true);
   }
   const m = c.moments[active];
+  const origin = LANES.indexOf(m.origin);
+  const involved = LANES.map((l, i) => (m.lanes[l] ? i : -1)).filter(i => i >= 0);
+  const first = Math.min(...involved), last = Math.max(...involved);
+  // Lanes that see the moment, nearest to where it starts first.
+  const responders = involved.filter(i => i !== origin).sort((a, b) => Math.abs(a - origin) - Math.abs(b - origin));
+
+  /** Connector segment for one cell of the active column: grows away from the origin lane. */
+  function flowStyle(li: number): CSSProperties {
+    const transformOrigin = li < origin ? '50% 100%' : li > origin ? '50% 0' : first === li ? '50% 0' : last === li ? '50% 100%' : '50% 34px';
+    return {['--d' as string]: Math.abs(li - origin), transformOrigin} as CSSProperties;
+  }
 
   return <div className="day" style={{['--step' as string]: active, ['--steps' as string]: n}}>
     {/* Desktop matrix */}
     <div className="day-matrix" data-reveal-item>
+      <span className="day-spot" aria-hidden="true"/>
       <div className="day-corner">
-        <span className="day-step-count">{c.stepLabel} {active + 1}/{n}</span>
+        <span className="day-step-count">{c.stepLabel} <b>{active + 1}</b>/{n}</span>
         <span className="day-arrows">
           <button type="button" onClick={() => go(active - 1)} aria-label={c.prev}><ChevronLeft strokeWidth={1.8} aria-hidden="true"/></button>
           <button type="button" onClick={() => go(active + 1)} aria-label={c.next}><ChevronRight strokeWidth={1.8} aria-hidden="true"/></button>
@@ -39,21 +51,40 @@ export function ConnectedDay({c}: {c: SectionsCopy['s04']}) {
       </div>
       {LANES.map((lane, li) => {
         const Icon = LANE_ICONS[lane];
+        const laneActive = !!m.lanes[lane];
         return [
-          <div key={`${lane}-label`} className="day-lane" style={{gridRow: li + 2}}><Icon strokeWidth={1.7} aria-hidden="true"/>{c.lanes[lane]}</div>,
+          <div key={`${lane}-label`} className={`day-lane${laneActive ? ' on' : ''}${li === origin ? ' origin' : ''}`} style={{gridRow: li + 2}}><Icon strokeWidth={1.7} aria-hidden="true"/>{c.lanes[lane]}</div>,
           ...c.moments.map((mo, i) => {
             const text = mo.lanes[lane];
-            const origin = mo.origin === lane;
-            return <div key={`${lane}-${i}`} className={`day-cell${i === active ? ' on' : ''}${origin ? ' origin' : ''}${text ? '' : ' empty'}`} style={{gridRow: li + 2, gridColumn: i + 2}} onClick={() => go(i)}>
-              {origin && <span className="day-origin">{c.starts}</span>}
+            const isOrigin = mo.origin === lane;
+            const on = i === active;
+            const flow = on && !!text;
+            const cls = ['day-cell', on && 'on', isOrigin && 'origin', !text && 'empty', flow && 'flow', flow && li === first && 'flow-first', flow && li === last && 'flow-last'].filter(Boolean).join(' ');
+            return <div key={`${lane}-${i}`} className={cls} style={{gridRow: li + 2, gridColumn: i + 2, ...(flow ? flowStyle(li) : null)}} onClick={() => go(i)}>
+              {on && text && <span className="day-tag">{isOrigin ? c.starts : c.inView}</span>}
               <p>{text ?? '—'}</p>
             </div>;
           }),
         ];
       })}
-      <span className="day-link" key={active} aria-hidden="true" style={{gridColumn: active + 2, ['--o' as string]: LANES.indexOf(m.origin)}}/>
     </div>
-    <p className="sr-only" aria-live="polite">{`${c.stepLabel} ${active + 1}/${n}: ${m.time}, ${m.title}`}</p>
+    <div className="day-readout" data-reveal-item aria-hidden="true">
+      <div className="day-readout-moment" key={`m-${active}`}>
+        <time>{m.time}</time>
+        <strong>{m.title}</strong>
+      </div>
+      <ol className="day-flow" key={`f-${active}`}>
+        {[origin, ...responders].map((li, k) => {
+          const lane = LANES[li];
+          const Icon = LANE_ICONS[lane];
+          return <li key={lane} className={k === 0 ? 'is-origin' : undefined} style={{['--k' as string]: k}}>
+            <span className="day-flow-icon"><Icon strokeWidth={1.7}/></span>
+            <span className="day-flow-text"><em>{k === 0 ? c.starts : c.inView}</em><b>{c.lanes[lane]}</b></span>
+          </li>;
+        })}
+      </ol>
+    </div>
+    <p className="sr-only" aria-live="polite">{`${c.stepLabel} ${active + 1}/${n}: ${m.time}, ${m.title}. ${c.starts}: ${c.lanes[m.origin]}. ${c.inView}: ${responders.map(i => c.lanes[LANES[i]]).join(', ')}.`}</p>
 
     {/* Mobile / narrow: every moment as a connected card */}
     <ol className="day-cards">
