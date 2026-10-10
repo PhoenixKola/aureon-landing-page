@@ -921,13 +921,6 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
   tl.add(3450, 700, p => { screensOn = p; });
   tl.add(3900, 650, p => { brandOn = ease.inOutSine(p); });
 
-  // Bolts, pins, caps and similar parts are far below shadow-map resolution: skip them in the shadow pass.
-  world.traverse(o => {
-    if (!(o instanceof THREE.Mesh) || o instanceof THREE.InstancedMesh || !o.castShadow) return;
-    o.geometry.computeBoundingSphere();
-    if (o.geometry.boundingSphere!.radius < 0.07) o.castShadow = false;
-  });
-
   /* ---------- Post: AO for contact, gentle bloom on practicals, film grade ---------- */
   const lowPower = (navigator.hardwareConcurrency || 8) <= 4;
   const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
@@ -1018,22 +1011,14 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     camera.updateProjectionMatrix();
   }
 
-  /* While pieces move, the frame renders at a lighter internal resolution with half-resolution AO (motion hides it);
-   * the settled frame, the stills and the living loop's captured photo use full quality. */
-  let hiRes = options.instant || options.freezeAt !== undefined || options.idleAt !== undefined || !!options.shot;
-  let degraded = false;
   function resize() {
     const w = canvas.clientWidth || 1, h = canvas.clientHeight || 1;
     layout = w / h < 0.9 || w < 720 ? 'mobile' : 'desktop';
-    const full = Math.min(window.devicePixelRatio || 1, layout === 'mobile' ? 1.5 : 1.6);
-    const motion = Math.min(full, layout === 'mobile' ? 1 : 1.1) * (degraded ? 0.8 : 1);
-    const dpr = hiRes ? full : motion;
+    const dpr = Math.min(window.devicePixelRatio || 1, layout === 'mobile' ? 1.5 : 1.6);
     renderer.setPixelRatio(dpr);
     renderer.setSize(w, h, false);
     composer.setPixelRatio(dpr);
     composer.setSize(w, h);
-    if (!hiRes) gtao.setSize(Math.ceil(w * dpr / 2), Math.ceil(h * dpr / 2));
-    gtao.enabled = !lowPower && !(degraded && !hiRes);
     grade.uniforms.res.value.set(w * dpr, h * dpr);
   }
 
@@ -1185,8 +1170,8 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
         gl_FragColor = vec4(beamColor * a * amp, 1.0);
       }`,
   }));
-  const shafts = new THREE.Mesh(prism(shaftQuads), beamMat(beamUniforms('#fff1d6', 0.085, 0.8)));
-  const curtains = new THREE.Mesh(prism(curtainQuads), beamMat(beamUniforms('#ffcf94', 0.055, 1.3)));
+  const shafts = new THREE.Mesh(prism(shaftQuads), beamMat(beamUniforms('#fff1d6', 0.03, 1.1)));
+  const curtains = new THREE.Mesh(prism(curtainQuads), beamMat(beamUniforms('#ffcf94', 0.022, 1.6)));
   shafts.frustumCulled = curtains.frustumCulled = false;
 
   /* The connection signal: a pulse runs along the floor LED strip under the slat wall and arrives at the chevron. */
@@ -1225,8 +1210,8 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
   const bufSize = new THREE.Vector2();
 
   /** Render the settled frame at full quality once, then keep its pixels and depth for the living loop. */
-  function capturePhoto() {
-    renderAt(tl.end);
+  function capturePhoto(alreadyRendered = false) {
+    if (!alreadyRendered) renderAt(tl.end);
     renderer.getDrawingBufferSize(bufSize);
     photo?.color.dispose(); photo?.depth.dispose();
     const color = new THREE.FramebufferTexture(bufSize.x, bufSize.y);
@@ -1299,27 +1284,18 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     liveLast = now;
     renderLive(liveClock / 1000);
   }
-  function startLive() {
+  function startLive(justRendered = false) {
     if (!idleEnabled || !settled || raf || disposed || !active) return;
-    if (!photo) capturePhoto();
+    if (!photo) capturePhoto(justRendered);
     liveLast = -1;
     raf = requestAnimationFrame(liveFrame);
   }
 
   let clock = 0, last = -1, raf = 0, settled = false, firstFrame = false, disposed = false, started = false;
-  let slowFrames = 0, timedFrames = 0;
   function frame(now: number) {
     if (disposed) return;
     // Accumulated, clamped delta: a hidden tab (no rAF) resumes where it paused instead of jumping ahead.
-    if (last >= 0) {
-      const dt = now - last;
-      clock += Math.min(dt, 250);
-      // A GPU that cannot hold ~25 fps during the assembly drops to a lighter mode (no AO while moving).
-      if (!hiRes && !degraded && dt < 1000 && ++timedFrames > 4) {
-        if (dt > 40) slowFrames++;
-        if (slowFrames >= 6) { degraded = true; resize(); }
-      }
-    }
+    if (last >= 0) clock += Math.min(now - last, 250);
     last = now;
     const t = options.freezeAt ?? (options.instant ? tl.end : clock);
     if (options.idleAt !== undefined) { capturePhoto(); renderLive(options.idleAt); }
@@ -1327,10 +1303,9 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     if (!firstFrame) { firstFrame = true; options.onFirstFrame?.(); }
     if (options.freezeAt !== undefined || options.idleAt !== undefined) { raf = 0; return; }
     if (t >= tl.end) {
-      if (!hiRes) { hiRes = true; resize(); if (!idleEnabled) renderAt(tl.end); }
       if (!settled) { settled = true; options.onSettled?.(); }
       raf = 0;
-      startLive();
+      startLive(true);
       return;
     }
     raf = requestAnimationFrame(frame);
@@ -1357,6 +1332,11 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     try { await renderer.compileAsync(scene, camera); } catch { /* falls back to compiling on first use */ }
     if (disposed) return;
     composer.render();
+    const warmDepth = new THREE.WebGLRenderTarget(4, 4, { depthTexture: new THREE.DepthTexture(4, 4) });
+    scene.overrideMaterial = depthOnly;
+    renderer.setRenderTarget(warmDepth); renderer.render(scene, camera); renderer.setRenderTarget(null);
+    scene.overrideMaterial = null;
+    warmDepth.dispose();
     renderer.render(photoScene, orthoCam);
     renderer.autoClear = false; renderer.render(overlay, camera); renderer.autoClear = true;
     tl.seek(0); applyLook();
