@@ -1,0 +1,14 @@
+# Put inside a properly configured TLS server block for the dedicated Aureon hostname.
+# The root MUST be isolated from every other application.
+root /var/www/aureon-public/current;
+index index.html;
+location / { try_files $uri $uri/ =404; }
+# Unknown URLs: designed 404 document with a real 404 status. It localizes itself from the /sq/ or /it/ prefix.
+error_page 404 /404.html;
+location = /404.html { internal; }
+add_header X-Content-Type-Options nosniff always;
+add_header Referrer-Policy strict-origin-when-cross-origin always;
+add_header X-Frame-Options DENY always;
+add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+# Next.js static export ships inline bootstrap scripts and the theme pre-paint script: 'unsafe-inline' is required.
+add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'" always;

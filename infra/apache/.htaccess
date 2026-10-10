@@ -1,0 +1,24 @@
+# Aureon public site — Apache configuration for the static export (contents of out/).
+# Place in the dedicated Aureon document root only. Requires mod_headers and AllowOverride FileInfo/Indexes/Options.
+Options -Indexes
+DirectoryIndex index.html
+
+# Unknown URLs get the designed 404 document with a real HTTP 404 status (never a 200 rewrite).
+# 404.html picks English, Albanian or Italian from the URL prefix (/sq/, /it/) before paint.
+ErrorDocument 404 /404.html
+
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set X-Frame-Options "DENY"
+  Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+  # Next.js static export ships inline bootstrap scripts and the theme pre-paint script, so 'unsafe-inline'
+  # is required for scripts and styles. No third-party origins are allowed.
+  Header always set Content-Security-Policy "default-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+  <FilesMatch "\.(js|css|webp|svg|woff2)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+  <FilesMatch "\.html$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+</IfModule>
