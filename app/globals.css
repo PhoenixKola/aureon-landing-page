@@ -127,8 +127,10 @@ html:not(.js) .hero-still-light,.hero-static .hero-still-light,.hero-media.is-fa
 
 /* ---------- Opening choreography (first visit, motion allowed) ---------- */
 @media(prefers-reduced-motion:no-preference){
-  .hero-intro [data-hero-beat]{animation:hero-beat .95s var(--ease-out) both;animation-delay:calc(560ms + var(--beat) * 150ms)}
-  [data-hero-beat="1"]{--beat:0}[data-hero-beat="2"]{--beat:1}[data-hero-beat="3"]{--beat:1.8}[data-hero-beat="4"]{--beat:2.6}[data-hero-beat="5"]{--beat:4}[data-hero-beat="6"]{--beat:5.2}[data-hero-beat="7"]{--beat:13}
+  /* Copy arrives after the gym has assembled (~3.2 s), just before the header; keyboard focus reveals it at once. */
+  .hero-intro [data-hero-beat]{animation:hero-beat .95s var(--ease-out) both;animation-delay:calc(3200ms + var(--beat) * 110ms)}
+  .hero-intro .hero:focus-within [data-hero-beat]{animation:none}
+  [data-hero-beat="1"]{--beat:0}[data-hero-beat="2"]{--beat:1}[data-hero-beat="3"]{--beat:1.8}[data-hero-beat="4"]{--beat:2.6}[data-hero-beat="5"]{--beat:4}[data-hero-beat="6"]{--beat:5.2}[data-hero-beat="7"]{--beat:7}
   @keyframes hero-beat{from{opacity:0;transform:translateY(24px);filter:blur(5px)}to{opacity:1;transform:none;filter:none}}
   .hero-intro .home-header{transition:opacity 1s var(--ease-out),transform 1.1s var(--ease-out),filter 1s var(--ease-out),visibility 0s,background-color .45s var(--ease-out),border-color .45s var(--ease-out),color .45s var(--ease-out)}
   .hero-intro:not(.hero-settled) .home-header{opacity:0;transform:translateY(-22px);filter:blur(4px);visibility:hidden}
@@ -485,7 +487,7 @@ html:not(.js) .hero-still-light,.hero-static .hero-still-light,.hero-media.is-fa
 .s05-head{margin-bottom:60px}
 .s05-grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:clamp(44px,6vw,110px);align-items:start}
 .s05-visual{position:sticky;top:calc(var(--header-h) + 28px);order:2}
-.s05-frame{position:relative;aspect-ratio:4/5;max-height:calc(100svh - var(--header-h) - 64px);margin-inline:auto;overflow:hidden;border-radius:4px;background:#0e1311;box-shadow:0 50px 90px -60px #000c}
+.s05-frame{position:relative;aspect-ratio:1/1;max-height:calc(100svh - var(--header-h) - 64px);margin-inline:auto;overflow:hidden;border-radius:4px;background:#0e1311;box-shadow:0 50px 90px -60px #000c}
 .s05-shot{position:absolute;inset:0;margin:0;opacity:0;transform:scale(1.06);transition:opacity .7s var(--ease-out),transform 1.6s var(--ease-out)}
 .s05-shot.on{opacity:1;transform:none}
 .s05-shot img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}

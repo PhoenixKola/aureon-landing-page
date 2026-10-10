@@ -4,7 +4,6 @@ import {site} from '@/config/site';
 import {dictionaries, locales, policySlugs, type Locale, type PolicySlug} from '@/content/dictionary';
 import {sections} from '@/content/sections';
 import {homePath, pathFor} from '@/lib/routes';
-import {releaseReadyByConfig} from '@/lib/readiness';
 
 export function SiteFooter({locale, slug}: {locale: Locale; slug?: PolicySlug}) {
   const d = dictionaries[locale];
@@ -36,7 +35,6 @@ export function SiteFooter({locale, slug}: {locale: Locale; slug?: PolicySlug}) 
       </div>
       <div className="footer-bottom">
         <span className="footer-copy">© {new Date().getUTCFullYear()} Aureon</span>
-        <span className="footer-status"><i aria-hidden="true"/>{releaseReadyByConfig ? 'AUREON · GYM PLATFORM' : d.preview}</span>
         <span className="footer-credit" lang="it">Realizzato con <span aria-hidden="true">⚡️</span> da{' '}
           <a href="https://www.nivello.it" target="_blank" rel="noopener noreferrer">Nivello</a>
         </span>
