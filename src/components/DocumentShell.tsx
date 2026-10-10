@@ -2,10 +2,11 @@ import type {ReactNode} from 'react';
 import {SiteFooter} from '@/components/SiteFooter';
 import {SiteHeader} from '@/components/SiteHeader';
 import {RevealOnScroll} from '@/components/RevealOnScroll';
+import {ScrollThumb} from '@/components/ScrollThumb';
 import {dictionaries, type Locale, type PolicySlug} from '@/content/dictionary';
 
 export function DocumentShell({locale,slug,home=false,children}:{locale:Locale;slug?:PolicySlug;home?:boolean;children:ReactNode}) {
-  return <><a className="skip" href="#main">{dictionaries[locale].skip}</a><SiteHeader locale={locale} slug={slug} home={home}/>{children}<RevealOnScroll/><SiteFooter locale={locale} slug={slug}/></>;
+  return <><a className="skip" href="#main">{dictionaries[locale].skip}</a><SiteHeader locale={locale} slug={slug} home={home}/>{children}<RevealOnScroll/><SiteFooter locale={locale} slug={slug}/><ScrollThumb/></>;
 }
 
 /*

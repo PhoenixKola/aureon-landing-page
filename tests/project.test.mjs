@@ -34,11 +34,14 @@ test('header arrives last and can never stay hidden',()=>{
  assert.match(shell,/prefers-reduced-motion: reduce/);
  assert.match(read('src/components/hero/HeroScene.tsx'),/hero-settled/);
 });
-test('hero is sized to the first viewport, scrollbar track transparent',()=>{
+test('hero is sized to the first viewport; page scrollbar is a floating thumb only',()=>{
  const css=read('app/globals.css');
  assert.match(css,/\.hero\{[^}]*height:100svh/);
- assert.match(css,/scrollbar-color:var\(--thumb\) transparent/);
- assert.match(css,/::-webkit-scrollbar-track,::-webkit-scrollbar-corner\{background:transparent\}/);
+ // Native root scrollbar (track, arrows, gutter) hidden; ScrollThumb draws the thumb.
+ assert.match(css,/html\{[^}]*scrollbar-width:none/);
+ assert.match(css,/html::-webkit-scrollbar\{display:none\}/);
+ assert.match(css,/\.scroll-thumb\{position:fixed/);
+ assert.match(read('src/components/DocumentShell.tsx'),/<ScrollThumb\/>/);
 });
 test('languages, controls and legal templates are present',()=>{
  const dict=read('src/content/dictionary.ts');
