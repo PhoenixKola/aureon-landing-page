@@ -5,7 +5,7 @@ const base=process.env.BASE_URL||'http://localhost:3000';
 const out='evidence/batch-02/video';mkdirSync(out,{recursive:true});
 const browser=await chromium.launch({args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 for(const [name,width,height] of [['desktop',1440,900],['phone',390,844]]){
-  const ctx=await browser.newContext({viewport:{width,height},colorScheme:'dark',recordVideo:{dir:out,size:{width,height}}});
+  const ctx=await browser.newContext({viewport:{width,height},colorScheme:'dark',recordVideo:{dir:out,size:{width,height}}});await ctx.addInitScript(t=>{try{localStorage.setItem('aureon-theme',t)}catch{}},'dark');
   const page=await ctx.newPage();
   await page.addInitScript(()=>{try{sessionStorage.setItem('aureon-hero-played','1')}catch{}});
   await page.goto(base+'/');await page.waitForSelector('.site-header[data-ready]');await page.waitForTimeout(800);

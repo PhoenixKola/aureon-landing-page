@@ -8,7 +8,7 @@ mkdirSync(out,{recursive:true});
 const browser=await chromium.launch({args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 for(const theme of themesArg.split(','))for(const size of sizesArg.split(',')){
   const [width,height]=all[size];
-  const ctx=await browser.newContext({viewport:{width,height},colorScheme:theme});
+  const ctx=await browser.newContext({viewport:{width,height},colorScheme:theme});await ctx.addInitScript(t=>{try{localStorage.setItem('aureon-theme',t)}catch{}},theme);
   const page=await ctx.newPage();
   for(const t of times.split(',')){
     await page.goto(`${base}/#hero-t=${t}`);await page.reload();

@@ -3,7 +3,7 @@ import {chromium} from '@playwright/test';
 import {mkdirSync,renameSync} from 'node:fs';
 const base=process.env.BASE_URL||'http://localhost:4310';const out='evidence/batch-04/video';mkdirSync(out,{recursive:true});
 const browser=await chromium.launch({args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
-async function rec(name,viewport,fn){const ctx=await browser.newContext({viewport,colorScheme:'dark',recordVideo:{dir:out,size:viewport}});const page=await ctx.newPage();
+async function rec(name,viewport,fn){const ctx=await browser.newContext({viewport,colorScheme:'dark',recordVideo:{dir:out,size:viewport}});await ctx.addInitScript(t=>{try{localStorage.setItem('aureon-theme',t)}catch{}},'dark');const page=await ctx.newPage();
  await page.addInitScript(()=>{try{sessionStorage.setItem('aureon-hero-played','1')}catch{}});await fn(page);const v=page.video();await ctx.close();renameSync(await v.path(),`${out}/${name}.webm`);}
 await rec('mobile-menu-phone',{width:390,height:844},async p=>{await p.goto(base+'/');await p.waitForSelector('.site-header[data-ready]');await p.waitForTimeout(800);
  await p.locator('.menu-button').click();await p.waitForTimeout(1200);for(let i=0;i<5;i++){await p.keyboard.press('Tab');await p.waitForTimeout(250);}

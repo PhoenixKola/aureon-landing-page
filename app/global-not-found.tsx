@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 
 /** Routing-level 404 for every unmatched URL (the app has one root layout per locale group). */
 export default function GlobalNotFound() {
-  return <html lang="en" data-theme="system" suppressHydrationWarning>
+  return <html lang="en" data-theme="dark" suppressHydrationWarning>
     <head><script dangerouslySetInnerHTML={{__html: PRE_PAINT + NF_LOCALE}}/></head>
     <body className="nf-body-root"><NotFoundPage/></body>
   </html>;

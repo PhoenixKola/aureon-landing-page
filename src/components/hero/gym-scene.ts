@@ -812,6 +812,7 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
   drop(topG, 2620, 400, 0.4);
 
   /* ---------- 8. Cardio row beneath the windows ---------- */
+  const screens: THREE.Mesh[] = [];
   function treadmill() {
     const g = new THREE.Group();
     const deck = mesh(geo(new RoundedBoxGeometry(0.82, 0.2, 1.95, 3, 0.04)), M.powderEdge); deck.position.y = 0.16;
@@ -824,6 +825,7 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     armL.rotation.x = armR.rotation.x = Math.PI / 2; armL.position.set(-0.36, 1.12, -0.72); armR.position.set(0.36, 1.12, -0.72);
     const consoleBody = mesh(geo(new RoundedBoxGeometry(0.8, 0.36, 0.1, 3, 0.03)), M.powderEdge); consoleBody.position.set(0, 1.42, -1.03); consoleBody.rotation.x = 0.35;
     const screen = box(0.5, 0.26, 0.012, M.screen, 0, 1.43, -0.975); screen.rotation.x = 0.35; screen.castShadow = false;
+    screens.push(screen);
     g.add(deck, belt, railL, railR, motor, uprL, uprR, armL, armR, consoleBody, screen);
     for (const fx of [-0.36, 0.36]) for (const fz of [-0.9, 0.9]) g.add(box(0.07, 0.03, 0.07, M.rubber, fx, 0.015, fz));
     return g;
@@ -919,6 +921,13 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
   tl.add(3450, 700, p => { screensOn = p; });
   tl.add(3900, 650, p => { brandOn = ease.inOutSine(p); });
 
+  // Bolts, pins, caps and similar parts are far below shadow-map resolution: skip them in the shadow pass.
+  world.traverse(o => {
+    if (!(o instanceof THREE.Mesh) || o instanceof THREE.InstancedMesh || !o.castShadow) return;
+    o.geometry.computeBoundingSphere();
+    if (o.geometry.boundingSphere!.radius < 0.07) o.castShadow = false;
+  });
+
   /* ---------- Post: AO for contact, gentle bloom on practicals, film grade ---------- */
   const lowPower = (navigator.hardwareConcurrency || 8) <= 4;
   const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
@@ -1009,14 +1018,22 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     camera.updateProjectionMatrix();
   }
 
+  /* While pieces move, the frame renders at a lighter internal resolution with half-resolution AO (motion hides it);
+   * the settled frame, the stills and the living loop's captured photo use full quality. */
+  let hiRes = options.instant || options.freezeAt !== undefined || options.idleAt !== undefined || !!options.shot;
+  let degraded = false;
   function resize() {
     const w = canvas.clientWidth || 1, h = canvas.clientHeight || 1;
     layout = w / h < 0.9 || w < 720 ? 'mobile' : 'desktop';
-    const dpr = Math.min(window.devicePixelRatio || 1, layout === 'mobile' ? 1.5 : 1.6);
+    const full = Math.min(window.devicePixelRatio || 1, layout === 'mobile' ? 1.5 : 1.6);
+    const motion = Math.min(full, layout === 'mobile' ? 1 : 1.1) * (degraded ? 0.8 : 1);
+    const dpr = hiRes ? full : motion;
     renderer.setPixelRatio(dpr);
     renderer.setSize(w, h, false);
     composer.setPixelRatio(dpr);
     composer.setSize(w, h);
+    if (!hiRes) gtao.setSize(Math.ceil(w * dpr / 2), Math.ceil(h * dpr / 2));
+    gtao.enabled = !lowPower && !(degraded && !hiRes);
     grade.uniforms.res.value.set(w * dpr, h * dpr);
   }
 
@@ -1112,6 +1129,92 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
   })));
   comet.frustumCulled = false;
   overlay.add(dust, comet);
+
+  /* Volumetric light: sun shafts through each window pane (light) or light curtains under the pendants (dark).
+   * Prisms drawn additively, softened at grazing angles, faded where they meet geometry and stirred by slow noise. */
+  const NOISE = `float hash3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+    float noise3(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(mix(hash3(i), hash3(i + vec3(1,0,0)), f.x), mix(hash3(i + vec3(0,1,0)), hash3(i + vec3(1,1,0)), f.x), f.y),
+                 mix(mix(hash3(i + vec3(0,0,1)), hash3(i + vec3(1,0,1)), f.x), mix(hash3(i + vec3(0,1,1)), hash3(i + vec3(1,1,1)), f.x), f.y), f.z); }`;
+  function prism(quads: [THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3][]) {
+    const pos: number[] = [], along: number[] = [];
+    // Each entry: near rectangle corners a0 a1 (one edge) and far corners b0 b1; emits one side quad.
+    for (const [a0, a1, b1, b0] of quads) {
+      for (const [v, t] of [[a0, 0], [a1, 0], [b1, 1], [a0, 0], [b1, 1], [b0, 1]] as [THREE.Vector3, number][]) { pos.push(v.x, v.y, v.z); along.push(t); }
+    }
+    const g = geo(new THREE.BufferGeometry());
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('aAlong', new THREE.Float32BufferAttribute(along, 1));
+    g.computeVertexNormals();
+    return g;
+  }
+  /** Four side faces of a box-like volume between a near rectangle n[0..3] and a far rectangle f[0..3]. */
+  const sides = (n: THREE.Vector3[], f: THREE.Vector3[]) => [0, 1, 2, 3].map(i => [n[i], n[(i + 1) % 4], f[(i + 1) % 4], f[i]] as [THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3]);
+  const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+  const sunDir = sun.target.position.clone().sub(sun.position).normalize();
+  const shaftQuads: ReturnType<typeof sides> = [];
+  const paneW = (WX1 - WX0) / 7;
+  for (let i = 0; i < 7; i++) for (const [y0, y1] of [[WY0 + 0.06, 2.58], [2.66, WY1 - 0.06]]) {
+    const x0 = WX0 + i * paneW + 0.05, x1 = WX0 + (i + 1) * paneW - 0.05, z = wallZ - 0.03;
+    const n = [V(x0, y0, z), V(x1, y0, z), V(x1, y1, z), V(x0, y1, z)];
+    shaftQuads.push(...sides(n, n.map(v => v.clone().addScaledVector(sunDir, 10.5))));
+  }
+  const curtainQuads: ReturnType<typeof sides> = [];
+  for (const z of [-3.1, -1.15, 0.8]) {
+    const n = [V(-2.12, 3.48, z - 0.04), V(2.92, 3.48, z - 0.04), V(2.92, 3.48, z + 0.04), V(-2.12, 3.48, z + 0.04)];
+    const f = [V(-2.5, 0.25, z - 0.75), V(3.3, 0.25, z - 0.75), V(3.3, 0.25, z + 0.75), V(-2.5, 0.25, z + 0.75)];
+    curtainQuads.push(...sides(n, f));
+  }
+  const beamUniforms = (color: string, density: number, falloff: number) => ({ ...live, beamColor: { value: raw(color) }, density: { value: density }, falloff: { value: falloff } });
+  const beamMat = (u: ReturnType<typeof beamUniforms>) => track(new THREE.ShaderMaterial({
+    uniforms: u, ...additive, side: THREE.DoubleSide,
+    vertexShader: `${DISPLACE} attribute float aAlong; varying float vAlong; varying vec3 vWorld; varying float vFacing;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vAlong = aAlong; vWorld = position;
+        vFacing = abs(dot(normalize(normalMatrix * normal), normalize(-mv.xyz)));
+        gl_Position = displaced(mv);
+      }`,
+    fragmentShader: `${OCCLUDE} ${NOISE} uniform vec3 beamColor; uniform float density; uniform float falloff; uniform float time; uniform float amp;
+      varying float vAlong; varying vec3 vWorld; varying float vFacing;
+      void main() {
+        float soft = clamp((sceneDepth(vSrc) - vZ) / 0.7, 0.0, 1.0);
+        if (soft <= 0.0) discard;
+        float n = noise3(vWorld * 1.6 + vec3(time * 0.05, -time * 0.03, time * 0.04)) * 0.6 + noise3(vWorld * 4.1 - vec3(0.0, time * 0.09, 0.0)) * 0.4;
+        float a = density * soft * pow(vFacing, 1.4) * pow(1.0 - vAlong, falloff) * smoothstep(0.0, 0.06, vAlong) * (0.45 + 0.75 * n);
+        gl_FragColor = vec4(beamColor * a * amp, 1.0);
+      }`,
+  }));
+  const shafts = new THREE.Mesh(prism(shaftQuads), beamMat(beamUniforms('#fff1d6', 0.085, 0.8)));
+  const curtains = new THREE.Mesh(prism(curtainQuads), beamMat(beamUniforms('#ffcf94', 0.055, 1.3)));
+  shafts.frustumCulled = curtains.frustumCulled = false;
+
+  /* The connection signal: a pulse runs along the floor LED strip under the slat wall and arrives at the chevron. */
+  const coveGeo = geo(new THREE.TubeGeometry(new THREE.LineCurve3(V(-9, 0.045, wallZ + 0.08), V(chevronOrigin.x, 0.045, wallZ + 0.08)), 64, 0.045, 8, false));
+  const coveUniforms = { ...live, head: { value: -1 }, cometGain: { value: 2.2 } };
+  const cometShader = comet.material as THREE.ShaderMaterial;
+  const coveSignal = new THREE.Mesh(coveGeo, track(new THREE.ShaderMaterial({ uniforms: coveUniforms, vertexShader: cometShader.vertexShader, fragmentShader: cometShader.fragmentShader, ...additive })));
+  coveSignal.frustumCulled = false;
+
+  /* Live treadmill consoles: the baked readout bars rise and fall (delta drawn over the captured photo). */
+  const consoleMat = track(new THREE.ShaderMaterial({
+    uniforms: live, depthTest: false, depthWrite: false, transparent: true,
+    vertexShader: `${DISPLACE} varying vec2 vUv; void main() { vUv = uv; gl_Position = displaced(modelViewMatrix * vec4(position, 1.0)); }`,
+    fragmentShader: `${OCCLUDE} uniform sampler2D tColor; uniform float time; uniform float amp; varying vec2 vUv;
+      float barH(float i, float t) { float h0 = 10.0 + mod(i * 37.0, 40.0); return clamp(h0 + 12.0 * (sin(t * 1.6 + i * 0.8) - sin(i * 0.8)), 6.0, 50.0); }
+      void main() {
+        if (vZ > sceneDepth(vSrc) + 0.04) discard;
+        float px = vUv.x * 256.0 - 130.0, i = floor(px / 12.0), local = px - i * 12.0;
+        if (i < 0.0 || i > 8.0 || local > 7.0) discard;
+        float y = (vUv.y - 0.25) * 128.0;
+        if (y < 0.0 || y > 52.0) discard;
+        float m0 = step(y, barH(i, 0.0)), m = step(y, mix(barH(i, 0.0), barH(i, time), amp));
+        if (m == m0) discard;
+        gl_FragColor = vec4(m > m0 ? vec3(0.5, 0.86, 0.78) : vec3(0.03, 0.06, 0.05), 1.0);
+      }`,
+  }));
+  const consoles = screens.map(sc => { const o = new THREE.Mesh(sc.geometry, consoleMat); o.matrixAutoUpdate = false; o.frustumCulled = false; return o; });
+  overlay.add(shafts, curtains, coveSignal, ...consoles);
   const DUST_BOX: Record<HeroTheme, [THREE.Vector3, THREE.Vector3]> = {
     dark: [new THREE.Vector3(-1.7, 0.15, -2.5), new THREE.Vector3(1.9, 3.3, 1.4)],
     light: [new THREE.Vector3(-0.6, 0.15, -4.1), new THREE.Vector3(6.4, 3.4, 0.6)],
@@ -1149,6 +1252,10 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     live.dustOpacity.value = theme === 'dark' ? 0.9 : 0.45;
     live.cometColor.value = raw(theme === 'dark' ? '#ffcf8a' : '#ffb85c');
     live.cometGain.value = theme === 'dark' ? 1 : 0.7;
+    coveUniforms.cometGain.value = theme === 'dark' ? 2.4 : 1.4;
+    shafts.visible = theme === 'light';
+    curtains.visible = theme === 'dark';
+    consoles.forEach((o, i) => { screens[i].updateWorldMatrix(true, false); o.matrix.copy(screens[i].matrixWorld); o.matrixWorldNeedsUpdate = true; });
   }
 
   const pointer = { x: 0, y: 0, tx: 0, ty: 0 };
@@ -1172,8 +1279,10 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     live.zoom.value = 1 + a * (0.016 + 0.005 * Math.sin(t * 0.09));
     live.time.value = t;
     live.amp.value = a;
-    const cycle = ((t + 3) % 7) / 2.1;
-    live.head.value = cycle < 1 ? -0.15 + ease.inOutSine(cycle) * 1.3 : -1;
+    const phase = ((t + 1.5) % 8) / 8;
+    coveUniforms.head.value = phase < 0.3 ? -0.1 + (phase / 0.3) * 1.15 : -1;
+    const chev = (phase - 0.27) / 0.28;
+    live.head.value = chev >= 0 && chev < 1 ? -0.15 + ease.inOutSine(chev) * 1.3 : -1;
     renderer.setRenderTarget(null);
     renderer.render(photoScene, orthoCam);
     renderer.autoClear = false;
@@ -1198,10 +1307,19 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
   }
 
   let clock = 0, last = -1, raf = 0, settled = false, firstFrame = false, disposed = false, started = false;
+  let slowFrames = 0, timedFrames = 0;
   function frame(now: number) {
     if (disposed) return;
     // Accumulated, clamped delta: a hidden tab (no rAF) resumes where it paused instead of jumping ahead.
-    if (last >= 0) clock += Math.min(now - last, 250);
+    if (last >= 0) {
+      const dt = now - last;
+      clock += Math.min(dt, 250);
+      // A GPU that cannot hold ~25 fps during the assembly drops to a lighter mode (no AO while moving).
+      if (!hiRes && !degraded && dt < 1000 && ++timedFrames > 4) {
+        if (dt > 40) slowFrames++;
+        if (slowFrames >= 6) { degraded = true; resize(); }
+      }
+    }
     last = now;
     const t = options.freezeAt ?? (options.instant ? tl.end : clock);
     if (options.idleAt !== undefined) { capturePhoto(); renderLive(options.idleAt); }
@@ -1209,6 +1327,7 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     if (!firstFrame) { firstFrame = true; options.onFirstFrame?.(); }
     if (options.freezeAt !== undefined || options.idleAt !== undefined) { raf = 0; return; }
     if (t >= tl.end) {
+      if (!hiRes) { hiRes = true; resize(); if (!idleEnabled) renderAt(tl.end); }
       if (!settled) { settled = true; options.onSettled?.(); }
       raf = 0;
       startLive();
@@ -1232,9 +1351,20 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
   resize();
   tl.seek(0);
   applyLook();
-  texReady.then(() => {
+  /** Compile all shaders and upload all textures up front (canvas still invisible), so no piece hitches as it appears. */
+  async function warmUp() {
+    tl.seek(tl.end); applyLook(); applyCamera();
+    try { await renderer.compileAsync(scene, camera); } catch { /* falls back to compiling on first use */ }
+    if (disposed) return;
+    composer.render();
+    renderer.render(photoScene, orthoCam);
+    renderer.autoClear = false; renderer.render(overlay, camera); renderer.autoClear = true;
+    tl.seek(0); applyLook();
+  }
+  texReady.then(warmUp).then(() => {
     if (disposed) return;
     started = true;
+    last = -1;
     raf = requestAnimationFrame(frame);
   });
 

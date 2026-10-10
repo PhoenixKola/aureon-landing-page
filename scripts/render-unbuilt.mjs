@@ -4,7 +4,7 @@ import {writeFileSync} from 'node:fs';
 const base=process.env.BASE_URL||'http://localhost:3000';
 const browser=await chromium.launch({args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 for(const theme of ['dark','light']){
-  const ctx=await browser.newContext({viewport:{width:1920,height:1080},colorScheme:theme});
+  const ctx=await browser.newContext({viewport:{width:1920,height:1080},colorScheme:theme});await ctx.addInitScript(t=>{try{localStorage.setItem('aureon-theme',t)}catch{}},theme);
   const page=await ctx.newPage();
   await page.goto(`${base}/#hero-t=1250`);
   await page.waitForFunction(()=>typeof window.__aureonHeroCapture==='function',null,{timeout:90000});

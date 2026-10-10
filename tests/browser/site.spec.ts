@@ -49,8 +49,8 @@ test('locale switch preserves route, including legal pages',async({page})=>{
   await expect(page.locator('h1')).toHaveCount(1);
  }
 });
-test('theme control: light/dark only, follows the OS first, persists the choice',async({page})=>{
- await page.emulateMedia({colorScheme:'dark'});
+test('theme control: light/dark only, dark by default even on a light OS, persists the choice',async({page})=>{
+ await page.emulateMedia({colorScheme:'light'});
  await page.goto('/privacy/');await ready(page);
  await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
  const toggle=page.locator('.header-actions .theme-toggle');
@@ -76,7 +76,7 @@ test('phone header shows only the logo and the menu; footer has no back-to-top',
 test('hero primary button keeps readable contrast on hover in both themes',async({page})=>{
  for(const scheme of ['light','dark'] as const){
   await page.emulateMedia({colorScheme:scheme,reducedMotion:'reduce'});
-  await page.goto('/');await ready(page);
+  await page.goto('/');await page.evaluate(t=>localStorage.setItem('aureon-theme',t),scheme);await page.reload();await ready(page);
   const btn=page.locator('.hero .button-light');await btn.hover();await page.waitForTimeout(400);
   const [fg,bg]=await btn.evaluate(e=>{const c=getComputedStyle(e);return [c.color,c.backgroundColor]});
   const lum=(c:string)=>{const [r,g,b2]=c.match(/[\d.]+/g)!.slice(0,3).map(Number).map(v=>{v/=255;return v<=.03928?v/12.92:((v+.055)/1.055)**2.4});return .2126*r+.7152*g+.0722*b2};

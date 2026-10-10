@@ -7,7 +7,7 @@ const targets=[['desktop',{width:1920,height:1080},1],['mobile',{width:430,heigh
 mkdirSync('public/assets/hero',{recursive:true});
 const browser=await chromium.launch({args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 for(const theme of ['dark','light'])for(const [name,viewport,deviceScaleFactor] of targets){
-  const ctx=await browser.newContext({viewport,deviceScaleFactor,colorScheme:theme});
+  const ctx=await browser.newContext({viewport,deviceScaleFactor,colorScheme:theme});await ctx.addInitScript(t=>{try{localStorage.setItem('aureon-theme',t)}catch{}},theme);
   const page=await ctx.newPage();
   await page.goto(`${base}/#hero-still`);
   await page.waitForSelector('.hero-media.is-live',{timeout:90000});

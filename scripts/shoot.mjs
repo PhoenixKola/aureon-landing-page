@@ -10,7 +10,7 @@ const browser=await chromium.launch({args:['--use-angle=swiftshader','--enable-u
 const onlyT=process.env.THEMES?.split(','),onlyS=process.env.SIZES?.split(',');
 for(const theme of ['dark','light'])for(const [name,width,height] of sizes){
   if((onlyT&&!onlyT.includes(theme))||(onlyS&&!onlyS.includes(name)))continue;
-  const ctx=await browser.newContext({viewport:{width,height},colorScheme:theme,deviceScaleFactor:1});
+  const ctx=await browser.newContext({viewport:{width,height},colorScheme:theme,deviceScaleFactor:1});await ctx.addInitScript(t=>{try{localStorage.setItem('aureon-theme',t)}catch{}},theme);
   const page=await ctx.newPage();
   page.on('pageerror',e=>console.error('pageerror',e.message));
   await page.goto(base+path,{waitUntil:'domcontentloaded'});

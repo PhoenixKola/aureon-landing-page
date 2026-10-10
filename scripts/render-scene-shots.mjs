@@ -8,7 +8,7 @@ const shots=['plates','bench','trainer','entrance','ceiling'].filter(s=>!only||o
 mkdirSync('public/assets/scenes',{recursive:true});
 const browser=await chromium.launch({args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 for(const theme of ['dark','light'])for(const [shot,viewport] of shots){
-  const ctx=await browser.newContext({viewport,deviceScaleFactor:1.5,colorScheme:theme});
+  const ctx=await browser.newContext({viewport,deviceScaleFactor:1.5,colorScheme:theme});await ctx.addInitScript(t=>{try{localStorage.setItem('aureon-theme',t)}catch{}},theme);
   const page=await ctx.newPage();
   await page.goto(`${base}/#hero-shot=${shot}`);
   await page.waitForFunction(()=>typeof window.__aureonHeroCapture==='function',null,{timeout:90000});

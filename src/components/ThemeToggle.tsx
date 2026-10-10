@@ -4,9 +4,9 @@ import {Moon, Sun} from 'lucide-react';
 
 type Mode = 'dark' | 'light';
 
-/** Light/dark switch. The head script resolves the initial mode (stored choice, else the OS preference) before paint. */
+/** Light/dark switch. The head script resolves the initial mode (stored choice, else dark) before paint. */
 export function ThemeToggle({label, modes, showLabel = false}: {label: string; modes: Record<Mode, string>; showLabel?: boolean}) {
-  const [mode, setMode] = useState<Mode>('light');
+  const [mode, setMode] = useState<Mode>('dark');
   useEffect(() => {
     const root = document.documentElement;
     const sync = () => setMode(root.dataset.theme === 'dark' ? 'dark' : 'light');

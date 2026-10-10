@@ -9,7 +9,7 @@ const browser=await chromium.launch({args:['--use-angle=swiftshader','--enable-u
 const hide='.site-header,.skip,nextjs-portal{visibility:hidden!important}';
 for(const theme of themeArg.split(','))for(const size of sizeArg.split(',')){
   const [width,height]=all[size];
-  const ctx=await browser.newContext({viewport:{width,height},colorScheme:theme,reducedMotion:'reduce'});
+  const ctx=await browser.newContext({viewport:{width,height},colorScheme:theme,reducedMotion:'reduce'});await ctx.addInitScript(t=>{try{localStorage.setItem('aureon-theme',t)}catch{}},theme);
   const page=await ctx.newPage();
   await page.goto(`${base}/${lang}`);await page.waitForSelector('.site-header[data-ready]',{timeout:60000});
   await page.addStyleTag({content:hide});
