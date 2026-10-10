@@ -37,10 +37,16 @@ export interface GymSceneOptions {
   shot?: HeroShot;
   onFirstFrame?: () => void;
   onSettled?: () => void;
+  /** After settling, keep the shot alive (camera drift, dust, swaying handles, brand pulse). */
+  idle?: boolean;
+  /** Evidence/debug only: render the settled scene frozen at this living-loop time (seconds). */
+  idleAt?: number;
 }
 export interface GymSceneApi {
   setTheme(theme: HeroTheme): void;
   resize(): void;
+  /** Pause / resume the living loop (e.g. when the hero scrolls out of view). */
+  setActive(active: boolean): void;
   capture(type?: string, quality?: number): string;
   dispose(): void;
 }
@@ -130,16 +136,25 @@ function plateTexture(label: string) {
 }
 
 /** Neutral treadmill console UI (no product branding: Aureon does not supply equipment). */
+function drawConsole(g: CanvasRenderingContext2D, t: number) {
+  g.fillStyle = '#04100d'; g.fillRect(0, 0, 256, 128);
+  const dial = 1 - 0.15 * (1 - Math.cos(t * 0.35));
+  g.strokeStyle = '#163f36'; g.lineWidth = 6;
+  g.beginPath(); g.arc(70, 64, 34, Math.PI * 0.8, Math.PI * 2.2); g.stroke();
+  g.strokeStyle = '#2f8f7a';
+  g.beginPath(); g.arc(70, 64, 34, Math.PI * 0.8, Math.PI * (0.8 + 1.4 * dial)); g.stroke();
+  g.fillStyle = '#5fd0b4';
+  for (let i = 0; i < 9; i++) {
+    const h = Math.min(50, Math.max(6, 10 + ((i * 37) % 40) + 12 * (Math.sin(t * 1.6 + i * 0.8) - Math.sin(i * 0.8))));
+    g.fillRect(130 + i * 12, 96 - h, 7, h);
+  }
+  g.fillRect(130, 26, 96, 6); g.fillStyle = '#2f8f7a'; g.fillRect(130, 38, 60, 4);
+}
+
 function consoleTexture() {
   const c = document.createElement('canvas');
   c.width = 256; c.height = 128;
-  const g = c.getContext('2d')!;
-  g.fillStyle = '#04100d'; g.fillRect(0, 0, 256, 128);
-  g.strokeStyle = '#2f8f7a'; g.lineWidth = 6;
-  g.beginPath(); g.arc(70, 64, 34, Math.PI * 0.8, Math.PI * 2.2); g.stroke();
-  g.fillStyle = '#5fd0b4';
-  for (let i = 0; i < 9; i++) { const h = 10 + ((i * 37) % 40); g.fillRect(130 + i * 12, 96 - h, 7, h); }
-  g.fillRect(130, 26, 96, 6); g.fillStyle = '#2f8f7a'; g.fillRect(130, 38, 60, 4);
+  drawConsole(c.getContext('2d')!, 0);
   return canvasTexture(c);
 }
 
@@ -758,6 +773,7 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
   trainer.rotation.y = 0.35;
   world.add(trainer);
   const TW = 1.7;
+  const swings: { g: THREE.Group; phase: number }[] = [];
   const pulleyGeo = geo(new THREE.CylinderGeometry(0.045, 0.045, 0.022, 28));
   for (const s of [-1, 1]) {
     const tower = new THREE.Group();
@@ -786,7 +802,11 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     const cable = cyl(0.003, 0.5, M.cable, 6); cable.position.set(0, -0.28, 0.02);
     const handleD = mesh(geo(new THREE.TorusGeometry(0.06, 0.009, 10, 24, Math.PI)), M.cable); handleD.position.set(0, -0.55, 0.02); handleD.rotation.z = Math.PI;
     const grip = cyl(0.014, 0.11, M.rubber, 14); grip.rotation.z = Math.PI / 2; grip.position.set(0, -0.6, 0.02);
-    carriage.add(pulley, cable, handleD, grip, tube(0.12, 0.2, 0.06, M.powder, 0, 0.1, -0.02));
+    // Cable, D-handle and grip hang from the pulley: a pendulum for the living loop.
+    const swing = new THREE.Group();
+    swing.add(cable, handleD, grip);
+    swings.push({ g: swing, phase: s > 0 ? 1.7 : 0 });
+    carriage.add(pulley, swing, tube(0.12, 0.2, 0.06, M.powder, 0, 0.1, -0.02));
     trainer.add(carriage);
     drop(carriage, 2750 + (s > 0 ? 60 : 0), 400, 0.45);
   }
@@ -851,6 +871,13 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
   const chevron = mesh(chevGeo, M.chevron, false, false);
   world.add(chevron);
   const chevIndexCount = chevGeo.index!.count;
+  // A brighter, slightly thicker copy of the stroke; a short window of it travels the chevron (the living loop).
+  const cometGeo = geo(new THREE.TubeGeometry(chevPath, 160, 0.021, 10, false));
+  const cometMat = track(new THREE.MeshBasicMaterial({ color: '#ffe6bd', transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const comet = mesh(cometGeo, cometMat, false, false);
+  comet.visible = false;
+  world.add(comet);
+  const cometCount = cometGeo.index!.count;
   const brandLight = new THREE.PointLight('#ffb35a', 0, 4.2, 1.6);
   brandLight.position.set(chevronOrigin.x, chevronOrigin.y + 0.55, wallZ + 0.45);
   scene.add(brandLight);
@@ -858,6 +885,22 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     chevron.visible = p > 0;
     chevGeo.setDrawRange(0, Math.floor((chevIndexCount / 6) * ease.inOutCubic(p)) * 6);
   });
+
+  /* ---------- Dust motes: drift through the key light (dark) or the sun shafts (light) once settled ---------- */
+  const DUST = 340;
+  const dustSeed = rng(41);
+  const dustBase = new Float32Array(DUST * 4);
+  for (let i = 0; i < DUST * 4; i++) dustBase[i] = dustSeed();
+  const dustPos = new Float32Array(DUST * 3);
+  const dustGeo = geo(new THREE.BufferGeometry());
+  dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
+  const sprite = document.createElement('canvas');
+  sprite.width = sprite.height = 32;
+  { const sg = sprite.getContext('2d')!; const gr = sg.createRadialGradient(16, 16, 0, 16, 16, 16); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.4, 'rgba(255,255,255,0.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); sg.fillStyle = gr; sg.fillRect(0, 0, 32, 32); }
+  const dustMat = track(new THREE.PointsMaterial({ map: track(canvasTexture(sprite)), size: 0.022, sizeAttenuation: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+  const dust = new THREE.Points(dustGeo, dustMat);
+  dust.visible = false; dust.frustumCulled = false;
+  world.add(dust);
 
   /* ---------- Lighting plan ----------
    * work/key: warm spot over the platform, on from the first frame (so the empty stage is legible)
@@ -917,7 +960,7 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
   const baseOverride = gtaoInternal._overrideVisibility.bind(gtao);
   gtaoInternal._overrideVisibility = () => {
     baseOverride();
-    for (const o of [glass, backdrop]) if (o.visible) { o.visible = false; gtaoInternal._visibilityCache.push(o); }
+    for (const o of [glass, backdrop, comet]) if (o.visible) { o.visible = false; gtaoInternal._visibilityCache.push(o); }
   };
   composer.addPass(gtao);
   const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.35, 0.55, 1.0);
@@ -958,8 +1001,10 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     M.diffuser.emissiveIntensity = lerp(theme === 'dark' ? 0.04 : 0.3, L.barEmissive, lightsOn);
     M.cove.emissiveIntensity = 3.2 * lightsOn;
     wallWash.intensity = L.cove * lightsOn;
-    M.chevron.emissiveIntensity = 2.4 * brandOn;
-    brandLight.intensity = L.brand * brandOn;
+    M.chevron.emissiveIntensity = 2.4 * brandOn * (1 + 0.45 * pulse);
+    brandLight.intensity = L.brand * brandOn * (1 + 0.6 * pulse);
+    dustMat.color.set(theme === 'dark' ? '#ffd9a6' : '#fffaf0');
+    dustMat.opacity = idleAmp * (theme === 'dark' ? 0.85 : 0.6);
     M.screen.emissiveIntensity = 1.6 * screensOn;
     bloom.strength = L.bloom;
     grade.uniforms.vignette.value = theme === 'dark' ? 0.26 : 0.14;
@@ -984,6 +1029,7 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     qa.lerpVectors(C.from, C.via, e); qb.lerpVectors(C.via, C.to, e);
     camPos.lerpVectors(qa, qb, e);
     camLook.lerpVectors(C.lookFrom, C.look, ease.inOutSine(camProgress));
+    camPos.add(camDrift); camLook.x += lookDrift;
     camera.fov = C.fov;
     camera.position.copy(camPos);
     camera.lookAt(camLook);
@@ -1003,6 +1049,83 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     grade.uniforms.res.value.set(w * dpr, h * dpr);
   }
 
+  /* ---------- Living loop: after the assembly the shot keeps breathing ---------- */
+  const idleEnabled = !!options.idle && options.freezeAt === undefined && !options.shot;
+  const camDrift = new THREE.Vector3();
+  let lookDrift = 0, idleAmp = 0, pulse = 0, idleClock = 0, idleLast = -1, active = true, consoleAt = -1;
+  const pointer = { x: 0, y: 0, tx: 0, ty: 0 };
+  const onPointer = (e: PointerEvent) => {
+    if (e.pointerType !== 'mouse') return;
+    pointer.tx = (e.clientX / window.innerWidth) * 2 - 1;
+    pointer.ty = (e.clientY / window.innerHeight) * 2 - 1;
+  };
+  if (idleEnabled) window.addEventListener('pointermove', onPointer, { passive: true });
+  const consoleCtx = (consoleMap.image as HTMLCanvasElement).getContext('2d')!;
+  const DUST_BOX: Record<HeroTheme, [number, number, number, number, number, number]> = {
+    dark: [-1.7, 1.9, 0.15, 3.3, -2.5, 1.4],
+    light: [-0.6, 6.4, 0.15, 3.4, -4.1, 0.6],
+  };
+
+  /** t < 0 resets everything the loop touches (captures and stills stay identical to the settled frame). */
+  function applyIdle(t: number) {
+    idleAmp = t < 0 ? 0 : ease.inOutSine(clamp01(t / 2.2));
+    const a = idleAmp, mobile = layout === 'mobile';
+    // Camera: slow, non-repeating breathing drift, plus mouse parallax on desktop.
+    pointer.x += (pointer.tx - pointer.x) * 0.05; pointer.y += (pointer.ty - pointer.y) * 0.05;
+    const px = mobile ? 0 : pointer.x, py = mobile ? 0 : pointer.y;
+    const k = mobile ? 0.55 : 1;
+    camDrift.set(
+      a * k * (Math.sin(t * 0.19) * 0.11 + Math.sin(t * 0.071 + 2) * 0.05 + px * 0.22),
+      a * k * (Math.sin(t * 0.13 + 1) * 0.028 - py * 0.07),
+      a * k * (Math.sin(t * 0.11 + 4) * 0.09),
+    );
+    lookDrift = a * k * (Math.sin(t * 0.19 + 0.6) * 0.035 + px * 0.06);
+    // Cable handles: a real pendulum (L ≈ 0.55 m → ω ≈ 4.2 rad/s), amplitude slowly breathing.
+    for (const { g, phase } of swings) {
+      const env = 0.55 + 0.45 * Math.sin(t * 0.23 + phase);
+      g.rotation.x = a * 0.07 * env * Math.sin(t * 4.2 + phase);
+      g.rotation.z = a * 0.025 * env * Math.sin(t * 4.2 * 0.97 + phase + 1.1);
+    }
+    // Brand pulse: every 6.5 s a short bright window runs along the chevron.
+    const cycle = t < 0 ? 99 : ((t + 1.5) % 6.5) / 1.6;
+    if (cycle < 1 && a > 0) {
+      const tri = cometCount / 3, head = ease.inOutSine(cycle) * (cometCount + tri * 0.6), len = tri * 0.6;
+      const start = Math.max(0, Math.floor((head - len) / 6) * 6), end = Math.min(cometCount, Math.floor(head / 6) * 6);
+      comet.visible = end > start;
+      cometGeo.setDrawRange(start, Math.max(0, end - start));
+      pulse = a * Math.sin(Math.PI * cycle);
+    } else { comet.visible = false; pulse = 0; }
+    // Dust motes drifting slowly upward through the light, wrapping inside their volume.
+    dust.visible = a > 0;
+    if (dust.visible) {
+      const [x0, x1, y0, y1, z0, z1] = DUST_BOX[theme];
+      for (let i = 0; i < DUST; i++) {
+        const b = i * 4, sp = 0.03 + dustBase[b + 3] * 0.05;
+        const y = (dustBase[b + 1] + t * sp / (y1 - y0)) % 1;
+        dustPos[i * 3] = x0 + dustBase[b] * (x1 - x0) + Math.sin(t * 0.3 + i) * 0.12;
+        dustPos[i * 3 + 1] = y0 + y * (y1 - y0);
+        dustPos[i * 3 + 2] = z0 + dustBase[b + 2] * (z1 - z0) + Math.cos(t * 0.23 + i * 1.7) * 0.12;
+      }
+      dustGeo.attributes.position.needsUpdate = true;
+    }
+    // Treadmill consoles: live readouts, refreshed twice a second.
+    if (a > 0 && t - consoleAt > 0.5) { consoleAt = t; drawConsole(consoleCtx, t); consoleMap.needsUpdate = true; }
+  }
+  function idleFrame(now: number) {
+    raf = 0;
+    if (disposed || !active) return;
+    raf = requestAnimationFrame(idleFrame);
+    if (idleLast >= 0 && now - idleLast < 1000 / (lowPower ? 20 : layout === 'mobile' ? 24 : 30)) return;
+    if (idleLast >= 0) idleClock += Math.min(now - idleLast, 100);
+    idleLast = now;
+    renderAt(tl.end, idleClock / 1000);
+  }
+  function startIdle() {
+    if (!idleEnabled || !settled || raf || disposed || !active) return;
+    idleLast = -1;
+    raf = requestAnimationFrame(idleFrame);
+  }
+
   let clock = 0, last = -1, raf = 0, settled = false, firstFrame = false, disposed = false, started = false;
   function frame(now: number) {
     if (disposed) return;
@@ -1010,18 +1133,20 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     if (last >= 0) clock += Math.min(now - last, 250);
     last = now;
     const t = options.freezeAt ?? (options.instant ? tl.end : clock);
-    renderAt(t);
+    renderAt(t, options.idleAt ?? -1);
     if (!firstFrame) { firstFrame = true; options.onFirstFrame?.(); }
-    if (options.freezeAt !== undefined) { raf = 0; return; }
+    if (options.freezeAt !== undefined || options.idleAt !== undefined) { raf = 0; return; }
     if (t >= tl.end) {
       if (!settled) { settled = true; options.onSettled?.(); }
       raf = 0;
+      startIdle();
       return;
     }
     raf = requestAnimationFrame(frame);
   }
-  function renderAt(ms: number) {
+  function renderAt(ms: number, idleT = -1) {
     tl.seek(ms);
+    applyIdle(idleT);
     applyLook();
     applyCamera();
     composer.render();
@@ -1042,14 +1167,19 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
 
   return {
     setTheme(next) { theme = next; requestRender(); },
+    setActive(next) {
+      active = next;
+      if (next) startIdle(); else if (raf && settled) { cancelAnimationFrame(raf); raf = 0; }
+    },
     resize() { resize(); requestRender(); },
     capture(type = 'image/webp', quality = 0.86) {
-      renderAt(options.freezeAt ?? tl.end);
+      renderAt(options.freezeAt ?? tl.end, options.idleAt ?? -1);
       return canvas.toDataURL(type, quality);
     },
     dispose() {
       disposed = true;
       if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener('pointermove', onPointer);
       disposables.forEach(d => d.dispose());
       scene.traverse(o => { if (o instanceof THREE.InstancedMesh) o.dispose(); });
       renderer.dispose();
