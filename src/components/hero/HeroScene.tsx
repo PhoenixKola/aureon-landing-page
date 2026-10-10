@@ -22,12 +22,9 @@ export function HeroScene() {
     const media = canvas.closest('.hero-media');
     const frozen = /^#hero-t=(\d+)$/.exec(location.hash);
     const shot = /^#hero-shot=(plates|bench|trainer|entrance|ceiling)$/.exec(location.hash)?.[1] as HeroShot | undefined;
-    const idleAt = /^#hero-idle=(\d+(?:\.\d+)?)$/.exec(location.hash);
-    const capture = location.hash === '#hero-still' || !!shot || !!frozen || !!idleAt;
-    // Static mode (reduced motion, Save-Data) shows the theme stills: no three.js, no GPU context.
-    // A repeat visit with motion allowed ('hero-live') loads the settled scene over the still and keeps it alive.
-    const live = root.classList.contains('hero-live');
-    if (root.classList.contains('hero-static') && !capture && !live) return;
+    const capture = location.hash === '#hero-still' || !!shot || !!frozen;
+    // Static mode (reduced motion, Save-Data, already played) shows the theme stills: no three.js, no GPU context.
+    if (root.classList.contains('hero-static') && !capture) return;
 
     let api: GymSceneApi | null = null;
     let cancelled = false;
@@ -43,10 +40,8 @@ export function HeroScene() {
       try {
         api = createGymScene(canvas, {
           theme: effectiveTheme(),
-          instant: location.hash === '#hero-still' || !!shot || !!idleAt || live,
-          idle: !capture,
+          instant: location.hash === '#hero-still' || !!shot,
           freezeAt: frozen ? Number(frozen[1]) : undefined,
-          idleAt: idleAt ? Number(idleAt[1]) : undefined,
           shot,
           onFirstFrame: firstFrame,
           onSettled: () => root.classList.add('hero-settled'),
@@ -62,9 +57,6 @@ export function HeroScene() {
     scheme.addEventListener('change', onTheme);
     const resizeObserver = new ResizeObserver(() => api?.resize());
     resizeObserver.observe(canvas);
-    // The living loop only runs while the hero is on screen.
-    const viewObserver = new IntersectionObserver(([entry]) => api?.setActive(entry.isIntersecting));
-    viewObserver.observe(canvas);
     canvas.addEventListener('webglcontextlost', fallback);
 
     return () => {
@@ -72,7 +64,6 @@ export function HeroScene() {
       themeObserver.disconnect();
       scheme.removeEventListener('change', onTheme);
       resizeObserver.disconnect();
-      viewObserver.disconnect();
       canvas.removeEventListener('webglcontextlost', fallback);
       api?.dispose();
     };
