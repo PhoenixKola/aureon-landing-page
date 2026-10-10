@@ -6,7 +6,7 @@ import { releaseReadyByConfig } from '@/lib/readiness';
 
 export function metadataFor(locale: Locale, slug?: PolicySlug): Metadata {
   const dict = dictionaries[locale];
-  const title = slug ? `${dict.legalTitles[slug]} — Aureon` : `Aureon — ${dict.heroEyebrow}`;
+  const title = slug ? `${dict.legalTitles[slug]} — Aureon` : 'Aureon';
   const description = slug ? dict.legalLead[slug] : dict.heroBody;
   const canonical = site.origin ? site.origin + pathFor(locale, slug) : undefined;
   const languages = site.origin ? Object.fromEntries(Object.entries(alternatesFor(slug)).map(([key,path]) => [key,site.origin + path])) : undefined;
