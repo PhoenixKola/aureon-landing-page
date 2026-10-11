@@ -13,7 +13,7 @@ for(const theme of themesArg.split(','))for(const size of sizesArg.split(',')){
   for(const t of times.split(',')){
     await page.goto(`${base}/#hero-t=${t}`);await page.reload();
     await page.waitForSelector('.hero-media.is-live',{timeout:60000});
-    await page.evaluate(t=>{if(t>=4700)document.documentElement.classList.add('hero-settled');else document.documentElement.classList.remove('hero-settled');document.querySelectorAll('[data-hero-beat]').forEach(e=>{e.style.animation='none';const beat=Number(e.getAttribute('data-hero-beat'));e.style.opacity=t>=[0,3200,3310,3398,3486,3640,3772,3970][beat]+400?'1':'0'})},Number(t));
+    await page.evaluate(t=>{if(t>=4700)document.documentElement.classList.add('hero-settled');else document.documentElement.classList.remove('hero-settled');document.querySelectorAll('[data-hero-beat]').forEach(e=>{e.style.animation='none';const beat=Number(e.getAttribute('data-hero-beat'));e.style.opacity=t>=[0,3000,3110,3198,3286,3440,3572,3770][beat]+400?'1':'0'})},Number(t));
     await page.waitForTimeout(400);
     await page.screenshot({path:`${out}/${size}-${theme}-t${String(t).padStart(4,'0')}.png`});
   }

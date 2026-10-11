@@ -8,6 +8,7 @@ import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Timeline, clamp01, ease, lerp } from '@/lib/motion';
 
 /*
@@ -37,10 +38,16 @@ export interface GymSceneOptions {
   shot?: HeroShot;
   onFirstFrame?: () => void;
   onSettled?: () => void;
+  /** After settling, keep the shot alive: depth parallax drift, dust in the light, a light pulse along the chevron. */
+  idle?: boolean;
+  /** Evidence/debug only: render the settled scene frozen at this living-loop time (seconds). */
+  idleAt?: number;
 }
 export interface GymSceneApi {
   setTheme(theme: HeroTheme): void;
   resize(): void;
+  /** Pause / resume the living loop (e.g. when the hero scrolls out of view). */
+  setActive(active: boolean): void;
   capture(type?: string, quality?: number): string;
   dispose(): void;
 }
@@ -130,16 +137,25 @@ function plateTexture(label: string) {
 }
 
 /** Neutral treadmill console UI (no product branding: Aureon does not supply equipment). */
+function drawConsole(g: CanvasRenderingContext2D, t: number) {
+  g.fillStyle = '#04100d'; g.fillRect(0, 0, 256, 128);
+  const dial = 1 - 0.15 * (1 - Math.cos(t * 0.35));
+  g.strokeStyle = '#163f36'; g.lineWidth = 6;
+  g.beginPath(); g.arc(70, 64, 34, Math.PI * 0.8, Math.PI * 2.2); g.stroke();
+  g.strokeStyle = '#2f8f7a';
+  g.beginPath(); g.arc(70, 64, 34, Math.PI * 0.8, Math.PI * (0.8 + 1.4 * dial)); g.stroke();
+  g.fillStyle = '#5fd0b4';
+  for (let i = 0; i < 9; i++) {
+    const h = Math.min(50, Math.max(6, 10 + ((i * 37) % 40) + 12 * (Math.sin(t * 1.6 + i * 0.8) - Math.sin(i * 0.8))));
+    g.fillRect(130 + i * 12, 96 - h, 7, h);
+  }
+  g.fillRect(130, 26, 96, 6); g.fillStyle = '#2f8f7a'; g.fillRect(130, 38, 60, 4);
+}
+
 function consoleTexture() {
   const c = document.createElement('canvas');
   c.width = 256; c.height = 128;
-  const g = c.getContext('2d')!;
-  g.fillStyle = '#04100d'; g.fillRect(0, 0, 256, 128);
-  g.strokeStyle = '#2f8f7a'; g.lineWidth = 6;
-  g.beginPath(); g.arc(70, 64, 34, Math.PI * 0.8, Math.PI * 2.2); g.stroke();
-  g.fillStyle = '#5fd0b4';
-  for (let i = 0; i < 9; i++) { const h = 10 + ((i * 37) % 40); g.fillRect(130 + i * 12, 96 - h, 7, h); }
-  g.fillRect(130, 26, 96, 6); g.fillStyle = '#2f8f7a'; g.fillRect(130, 38, 60, 4);
+  drawConsole(c.getContext('2d')!, 0);
   return canvasTexture(c);
 }
 
@@ -403,14 +419,19 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
 
   /* ---------- Shared tween helpers ---------- */
   const show = (o: THREE.Object3D, p: number) => { o.visible = p > 0; };
+  /** Everything the timeline moves on its own; never merged. */
+  const animated = new Set<THREE.Object3D>();
   function grow(o: THREE.Object3D, start: number, dur: number, easing = ease.outQuart) {
+    animated.add(o);
     tl.add(start, dur, p => { show(o, p); o.scale.y = Math.max(0.0001, easing(p)); });
   }
   function drop(o: THREE.Object3D, start: number, dur: number, height = 1.2, easing: (t: number) => number = land) {
+    animated.add(o);
     const base = o.position.y;
     tl.add(start, dur, p => { show(o, p); o.position.y = base + height * (1 - easing(p)); });
   }
   function slide(o: THREE.Object3D, start: number, dur: number, offset: THREE.Vector3, easing: (t: number) => number = ease.outQuart) {
+    animated.add(o);
     const base = o.position.clone();
     tl.add(start, dur, p => {
       show(o, p);
@@ -797,6 +818,7 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
   drop(topG, 2620, 400, 0.4);
 
   /* ---------- 8. Cardio row beneath the windows ---------- */
+  const screens: THREE.Mesh[] = [];
   function treadmill() {
     const g = new THREE.Group();
     const deck = mesh(geo(new RoundedBoxGeometry(0.82, 0.2, 1.95, 3, 0.04)), M.powderEdge); deck.position.y = 0.16;
@@ -809,6 +831,7 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     armL.rotation.x = armR.rotation.x = Math.PI / 2; armL.position.set(-0.36, 1.12, -0.72); armR.position.set(0.36, 1.12, -0.72);
     const consoleBody = mesh(geo(new RoundedBoxGeometry(0.8, 0.36, 0.1, 3, 0.03)), M.powderEdge); consoleBody.position.set(0, 1.42, -1.03); consoleBody.rotation.x = 0.35;
     const screen = box(0.5, 0.26, 0.012, M.screen, 0, 1.43, -0.975); screen.rotation.x = 0.35; screen.castShadow = false;
+    screens.push(screen);
     g.add(deck, belt, railL, railR, motor, uprL, uprR, armL, armR, consoleBody, screen);
     for (const fx of [-0.36, 0.36]) for (const fz of [-0.9, 0.9]) g.add(box(0.07, 0.03, 0.07, M.rubber, fx, 0.015, fz));
     return g;
@@ -851,6 +874,8 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
   const chevron = mesh(chevGeo, M.chevron, false, false);
   world.add(chevron);
   const chevIndexCount = chevGeo.index!.count;
+  // Soft halo tube around the stroke, used only by the living loop's light pulse.
+  const cometGeo = geo(new THREE.TubeGeometry(chevPath, 160, 0.034, 12, false));
   const brandLight = new THREE.PointLight('#ffb35a', 0, 4.2, 1.6);
   brandLight.position.set(chevronOrigin.x, chevronOrigin.y + 0.55, wallZ + 0.45);
   scene.add(brandLight);
@@ -1003,6 +1028,275 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     grade.uniforms.res.value.set(w * dpr, h * dpr);
   }
 
+  /* ---------- Living loop ----------
+   * Re-rendering the lit scene every frame (AO, bloom, two shadow maps, ~1.5k draw calls) is far too heavy to run
+   * continuously. Once settled, the final frame and its depth buffer are captured once. The loop then only
+   * reprojects that photograph with depth-correct parallax (one full-screen pass), and draws dust motes and a light
+   * pulse along the chevron over it, occluded by the captured depth. Per frame: a few texture reads per pixel and two
+   * tiny draws, so scrolling and the rest of the page stay smooth. */
+  const idleEnabled = !!options.idle && options.freezeAt === undefined && !options.shot;
+  const raw = (hex: string) => { const n = parseInt(hex.slice(1), 16); return new THREE.Vector3((n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255); };
+  const live = {
+    tColor: { value: null as THREE.Texture | null },
+    tDepth: { value: null as THREE.Texture | null },
+    near: { value: camera.near }, far: { value: camera.far },
+    shift: { value: new THREE.Vector2() }, zoom: { value: 1 }, focus: { value: 8 },
+    time: { value: 0 }, amp: { value: 0 }, head: { value: -1 },
+    boxMin: { value: new THREE.Vector3() }, boxMax: { value: new THREE.Vector3() },
+    dustColor: { value: raw('#ffd9a6') }, dustOpacity: { value: 0.9 }, size: { value: 10 },
+    cometColor: { value: raw('#ffcf8a') }, cometGain: { value: 1 },
+  };
+  const DEPTH = `uniform sampler2D tDepth; uniform float near; uniform float far;
+    float sceneDepth(vec2 uv) { float z = texture2D(tDepth, uv).x * 2.0 - 1.0; return (2.0 * near * far) / (far + near - z * (far - near)); }`;
+  const DISPLACE = `uniform vec2 shift; uniform float zoom; uniform float focus; varying vec2 vSrc; varying float vZ;
+    vec4 displaced(vec4 mv) {
+      vec4 clip = projectionMatrix * mv;
+      vZ = -mv.z;
+      vSrc = clip.xy / clip.w * 0.5 + 0.5;
+      clip.xy += 2.0 * shift * (1.0 / vZ - 1.0 / focus) * clip.w;
+      clip.xy *= zoom;
+      return clip;
+    }`;
+  const OCCLUDE = `${DEPTH} varying vec2 vSrc; varying float vZ;`;
+  const photoMat = track(new THREE.ShaderMaterial({
+    uniforms: live, depthTest: false, depthWrite: false,
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: `${DEPTH} uniform sampler2D tColor; uniform vec2 shift; uniform float zoom; uniform float focus; varying vec2 vUv;
+      void main() {
+        vec2 uv = (vUv - 0.5) / zoom + 0.5;
+        vec2 s = uv;
+        for (int i = 0; i < 3; i++) s = uv - shift * (1.0 / sceneDepth(clamp(s, 0.0, 1.0)) - 1.0 / focus);
+        gl_FragColor = texture2D(tColor, clamp(s, 0.0005, 0.9995));
+      }`,
+  }));
+  const photoScene = new THREE.Scene();
+  photoScene.add(new THREE.Mesh(geo(new THREE.PlaneGeometry(2, 2)), photoMat));
+  const orthoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+  const overlay = new THREE.Scene();
+  const DUST = 420;
+  const dustSeed = rng(41);
+  const dustData = new Float32Array(DUST * 3), dustPhase = new Float32Array(DUST);
+  for (let i = 0; i < DUST; i++) { dustData[i * 3] = dustSeed(); dustData[i * 3 + 1] = dustSeed(); dustData[i * 3 + 2] = dustSeed(); dustPhase[i] = dustSeed(); }
+  const dustGeo = geo(new THREE.BufferGeometry());
+  dustGeo.setAttribute('position', new THREE.BufferAttribute(dustData, 3));
+  dustGeo.setAttribute('aSeed', new THREE.BufferAttribute(dustPhase, 1));
+  const additive = { transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending } as const;
+  const dust = new THREE.Points(dustGeo, track(new THREE.ShaderMaterial({
+    uniforms: live, ...additive,
+    vertexShader: `${DISPLACE} attribute float aSeed; uniform float time; uniform vec3 boxMin; uniform vec3 boxMax; uniform float size; varying float vA;
+      void main() {
+        vec3 ext = boxMax - boxMin;
+        float y = fract(position.y + time * (0.025 + aSeed * 0.045) / ext.y);
+        vec3 wp = boxMin + vec3(position.x, y, position.z) * ext + vec3(sin(time * 0.3 + aSeed * 40.0), 0.0, cos(time * 0.23 + aSeed * 70.0)) * 0.12;
+        gl_Position = displaced(modelViewMatrix * vec4(wp, 1.0));
+        gl_PointSize = size * (0.6 + aSeed * 0.8) / vZ;
+        vA = smoothstep(0.0, 0.15, y) * smoothstep(1.0, 0.8, y) * (0.55 + 0.45 * sin(time * (0.7 + aSeed) + aSeed * 30.0));
+      }`,
+    fragmentShader: `${OCCLUDE} uniform vec3 dustColor; uniform float dustOpacity; uniform float amp; varying float vA;
+      void main() {
+        if (vZ > sceneDepth(vSrc) + 0.05) discard;
+        float a = smoothstep(0.5, 0.0, length(gl_PointCoord - 0.5));
+        gl_FragColor = vec4(dustColor * a * a * vA * dustOpacity * amp, 1.0);
+      }`,
+  })));
+  dust.frustumCulled = false;
+  const comet = new THREE.Mesh(cometGeo, track(new THREE.ShaderMaterial({
+    uniforms: live, ...additive,
+    vertexShader: `${DISPLACE} varying float vU; varying float vFacing;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vU = uv.x;
+        vFacing = abs(dot(normalize(normalMatrix * normal), normalize(-mv.xyz)));
+        gl_Position = displaced(mv);
+      }`,
+    fragmentShader: `${OCCLUDE} uniform float head; uniform vec3 cometColor; uniform float cometGain; uniform float amp; varying float vU; varying float vFacing;
+      void main() {
+        if (vZ > sceneDepth(vSrc) + 0.12) discard;
+        float along = exp(-pow((vU - head) / 0.075, 2.0));
+        float glow = along * (pow(vFacing, 4.0) * 1.7 + vFacing * 0.25);
+        gl_FragColor = vec4(cometColor * glow * cometGain * amp, 1.0);
+      }`,
+  })));
+  comet.frustumCulled = false;
+  overlay.add(dust, comet);
+
+  /* Volumetric light: sun shafts through each window pane (light) or light curtains under the pendants (dark).
+   * Prisms drawn additively, softened at grazing angles, faded where they meet geometry and stirred by slow noise. */
+  const NOISE = `float hash3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+    float noise3(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(mix(hash3(i), hash3(i + vec3(1,0,0)), f.x), mix(hash3(i + vec3(0,1,0)), hash3(i + vec3(1,1,0)), f.x), f.y),
+                 mix(mix(hash3(i + vec3(0,0,1)), hash3(i + vec3(1,0,1)), f.x), mix(hash3(i + vec3(0,1,1)), hash3(i + vec3(1,1,1)), f.x), f.y), f.z); }`;
+  function prism(quads: [THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3][]) {
+    const pos: number[] = [], along: number[] = [];
+    // Each entry: near rectangle corners a0 a1 (one edge) and far corners b0 b1; emits one side quad.
+    for (const [a0, a1, b1, b0] of quads) {
+      for (const [v, t] of [[a0, 0], [a1, 0], [b1, 1], [a0, 0], [b1, 1], [b0, 1]] as [THREE.Vector3, number][]) { pos.push(v.x, v.y, v.z); along.push(t); }
+    }
+    const g = geo(new THREE.BufferGeometry());
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('aAlong', new THREE.Float32BufferAttribute(along, 1));
+    g.computeVertexNormals();
+    return g;
+  }
+  /** Four side faces of a box-like volume between a near rectangle n[0..3] and a far rectangle f[0..3]. */
+  const sides = (n: THREE.Vector3[], f: THREE.Vector3[]) => [0, 1, 2, 3].map(i => [n[i], n[(i + 1) % 4], f[(i + 1) % 4], f[i]] as [THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3]);
+  const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+  const sunDir = sun.target.position.clone().sub(sun.position).normalize();
+  const shaftQuads: ReturnType<typeof sides> = [];
+  const paneW = (WX1 - WX0) / 7;
+  for (let i = 0; i < 7; i++) for (const [y0, y1] of [[WY0 + 0.06, 2.58], [2.66, WY1 - 0.06]]) {
+    const x0 = WX0 + i * paneW + 0.05, x1 = WX0 + (i + 1) * paneW - 0.05, z = wallZ - 0.03;
+    const n = [V(x0, y0, z), V(x1, y0, z), V(x1, y1, z), V(x0, y1, z)];
+    shaftQuads.push(...sides(n, n.map(v => v.clone().addScaledVector(sunDir, 10.5))));
+  }
+  const curtainQuads: ReturnType<typeof sides> = [];
+  for (const z of [-3.1, -1.15, 0.8]) {
+    const n = [V(-2.12, 3.48, z - 0.04), V(2.92, 3.48, z - 0.04), V(2.92, 3.48, z + 0.04), V(-2.12, 3.48, z + 0.04)];
+    const f = [V(-2.5, 0.25, z - 0.75), V(3.3, 0.25, z - 0.75), V(3.3, 0.25, z + 0.75), V(-2.5, 0.25, z + 0.75)];
+    curtainQuads.push(...sides(n, f));
+  }
+  const beamUniforms = (color: string, density: number, falloff: number) => ({ ...live, beamColor: { value: raw(color) }, density: { value: density }, falloff: { value: falloff } });
+  const beamMat = (u: ReturnType<typeof beamUniforms>) => track(new THREE.ShaderMaterial({
+    uniforms: u, ...additive, side: THREE.DoubleSide,
+    vertexShader: `${DISPLACE} attribute float aAlong; varying float vAlong; varying vec3 vWorld; varying float vFacing;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vAlong = aAlong; vWorld = position;
+        vFacing = abs(dot(normalize(normalMatrix * normal), normalize(-mv.xyz)));
+        gl_Position = displaced(mv);
+      }`,
+    fragmentShader: `${OCCLUDE} ${NOISE} uniform vec3 beamColor; uniform float density; uniform float falloff; uniform float time; uniform float amp;
+      varying float vAlong; varying vec3 vWorld; varying float vFacing;
+      void main() {
+        float soft = clamp((sceneDepth(vSrc) - vZ) / 0.7, 0.0, 1.0);
+        if (soft <= 0.0) discard;
+        float n = noise3(vWorld * 1.6 + vec3(time * 0.05, -time * 0.03, time * 0.04)) * 0.6 + noise3(vWorld * 4.1 - vec3(0.0, time * 0.09, 0.0)) * 0.4;
+        float a = density * soft * pow(vFacing, 1.4) * pow(1.0 - vAlong, falloff) * smoothstep(0.0, 0.06, vAlong) * (0.45 + 0.75 * n);
+        gl_FragColor = vec4(beamColor * a * amp, 1.0);
+      }`,
+  }));
+  const shafts = new THREE.Mesh(prism(shaftQuads), beamMat(beamUniforms('#fff1d6', 0.03, 1.1)));
+  const curtains = new THREE.Mesh(prism(curtainQuads), beamMat(beamUniforms('#ffcf94', 0.022, 1.6)));
+  shafts.frustumCulled = curtains.frustumCulled = false;
+
+  /* The connection signal: a pulse runs along the floor LED strip under the slat wall and arrives at the chevron. */
+  const coveGeo = geo(new THREE.TubeGeometry(new THREE.LineCurve3(V(-9, 0.045, wallZ + 0.08), V(chevronOrigin.x, 0.045, wallZ + 0.08)), 64, 0.045, 8, false));
+  const coveUniforms = { ...live, head: { value: -1 }, cometGain: { value: 2.2 } };
+  const cometShader = comet.material as THREE.ShaderMaterial;
+  const coveSignal = new THREE.Mesh(coveGeo, track(new THREE.ShaderMaterial({ uniforms: coveUniforms, vertexShader: cometShader.vertexShader, fragmentShader: cometShader.fragmentShader, ...additive })));
+  coveSignal.frustumCulled = false;
+
+  /* Live treadmill consoles: the baked readout bars rise and fall (delta drawn over the captured photo). */
+  const consoleMat = track(new THREE.ShaderMaterial({
+    uniforms: live, depthTest: false, depthWrite: false, transparent: true,
+    vertexShader: `${DISPLACE} varying vec2 vUv; void main() { vUv = uv; gl_Position = displaced(modelViewMatrix * vec4(position, 1.0)); }`,
+    fragmentShader: `${OCCLUDE} uniform sampler2D tColor; uniform float time; uniform float amp; varying vec2 vUv;
+      float barH(float i, float t) { float h0 = 10.0 + mod(i * 37.0, 40.0); return clamp(h0 + 12.0 * (sin(t * 1.6 + i * 0.8) - sin(i * 0.8)), 6.0, 50.0); }
+      void main() {
+        if (vZ > sceneDepth(vSrc) + 0.04) discard;
+        float px = vUv.x * 256.0 - 130.0, i = floor(px / 12.0), local = px - i * 12.0;
+        if (i < 0.0 || i > 8.0 || local > 7.0) discard;
+        float y = (vUv.y - 0.25) * 128.0;
+        if (y < 0.0 || y > 52.0) discard;
+        float m0 = step(y, barH(i, 0.0)), m = step(y, mix(barH(i, 0.0), barH(i, time), amp));
+        if (m == m0) discard;
+        gl_FragColor = vec4(m > m0 ? vec3(0.5, 0.86, 0.78) : vec3(0.03, 0.06, 0.05), 1.0);
+      }`,
+  }));
+  const consoles = screens.map(sc => { const o = new THREE.Mesh(sc.geometry, consoleMat); o.matrixAutoUpdate = false; o.frustumCulled = false; return o; });
+  overlay.add(shafts, curtains, coveSignal, ...consoles);
+  const DUST_BOX: Record<HeroTheme, [THREE.Vector3, THREE.Vector3]> = {
+    dark: [new THREE.Vector3(-1.7, 0.15, -2.5), new THREE.Vector3(1.9, 3.3, 1.4)],
+    light: [new THREE.Vector3(-0.6, 0.15, -4.1), new THREE.Vector3(6.4, 3.4, 0.6)],
+  };
+  const depthOnly = track(new THREE.MeshBasicMaterial({ colorWrite: false }));
+  let photo: { color: THREE.FramebufferTexture; depth: THREE.WebGLRenderTarget } | null = null;
+  const focusPoint = new THREE.Vector3(0.2, 1.3, -1.15);
+  const bufSize = new THREE.Vector2();
+
+  /** Render the settled frame at full quality once, then keep its pixels and depth for the living loop. */
+  function capturePhoto(alreadyRendered = false) {
+    if (!alreadyRendered) renderAt(tl.end);
+    renderer.getDrawingBufferSize(bufSize);
+    photo?.color.dispose(); photo?.depth.dispose();
+    const color = new THREE.FramebufferTexture(bufSize.x, bufSize.y);
+    renderer.copyFramebufferToTexture(color);
+    const depth = new THREE.WebGLRenderTarget(bufSize.x, bufSize.y, { depthTexture: new THREE.DepthTexture(bufSize.x, bufSize.y) });
+    const glassWasVisible = glass.visible;
+    glass.visible = false;
+    scene.overrideMaterial = depthOnly;
+    renderer.setRenderTarget(depth);
+    renderer.render(scene, camera);
+    renderer.setRenderTarget(null);
+    scene.overrideMaterial = null;
+    glass.visible = glassWasVisible;
+    photo = { color, depth };
+    live.tColor.value = color;
+    live.tDepth.value = depth.depthTexture;
+    live.near.value = camera.near; live.far.value = camera.far;
+    live.focus.value = camera.position.distanceTo(focusPoint);
+    live.size.value = 0.02 * (bufSize.y / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+    const [lo, hi] = DUST_BOX[theme];
+    live.boxMin.value.copy(lo); live.boxMax.value.copy(hi);
+    live.dustColor.value = raw(theme === 'dark' ? '#ffd9a6' : '#fff4e0');
+    live.dustOpacity.value = theme === 'dark' ? 0.9 : 0.45;
+    live.cometColor.value = raw(theme === 'dark' ? '#ffcf8a' : '#ffb85c');
+    live.cometGain.value = theme === 'dark' ? 1 : 0.7;
+    coveUniforms.cometGain.value = theme === 'dark' ? 2.4 : 1.4;
+    shafts.visible = theme === 'light';
+    curtains.visible = theme === 'dark';
+    consoles.forEach((o, i) => { screens[i].updateWorldMatrix(true, false); o.matrix.copy(screens[i].matrixWorld); o.matrixWorldNeedsUpdate = true; });
+  }
+
+  const pointer = { x: 0, y: 0, tx: 0, ty: 0 };
+  const onPointer = (e: PointerEvent) => {
+    if (e.pointerType !== 'mouse') return;
+    pointer.tx = (e.clientX / window.innerWidth) * 2 - 1;
+    pointer.ty = (e.clientY / window.innerHeight) * 2 - 1;
+  };
+  if (idleEnabled) window.addEventListener('pointermove', onPointer, { passive: true });
+
+  /** One living-loop frame at loop time t (seconds). */
+  function renderLive(t: number) {
+    const a = ease.inOutSine(clamp01(t / 2.4)), mobile = layout === 'mobile';
+    pointer.x += (pointer.tx - pointer.x) * 0.06; pointer.y += (pointer.ty - pointer.y) * 0.06;
+    const px = mobile ? 0 : pointer.x, py = mobile ? 0 : pointer.y, k = mobile ? 0.7 : 1;
+    // Camera breathing (metres): slow, non-repeating lateral drift and a slight rise; the mouse leans the view.
+    const dx = a * (k * (Math.sin(t * 0.19) * 0.035 + Math.sin(t * 0.071 + 2) * 0.015) + px * 0.05);
+    const dy = a * (k * Math.sin(t * 0.13 + 1) * 0.012 - py * 0.02);
+    const tanY = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2), tanX = tanY * camera.aspect;
+    live.shift.value.set(-dx / (2 * tanX), -dy / (2 * tanY));
+    live.zoom.value = 1 + a * (0.016 + 0.005 * Math.sin(t * 0.09));
+    live.time.value = t;
+    live.amp.value = a;
+    const phase = ((t + 1.5) % 8) / 8;
+    coveUniforms.head.value = phase < 0.3 ? -0.1 + (phase / 0.3) * 1.15 : -1;
+    const chev = (phase - 0.27) / 0.28;
+    live.head.value = chev >= 0 && chev < 1 ? -0.15 + ease.inOutSine(chev) * 1.3 : -1;
+    renderer.setRenderTarget(null);
+    renderer.render(photoScene, orthoCam);
+    renderer.autoClear = false;
+    renderer.render(overlay, camera);
+    renderer.autoClear = true;
+  }
+
+  let liveClock = 0, liveLast = -1, active = true;
+  function liveFrame(now: number) {
+    raf = 0;
+    if (disposed || !active || !photo) return;
+    raf = requestAnimationFrame(liveFrame);
+    if (liveLast >= 0) liveClock += Math.min(now - liveLast, 100);
+    liveLast = now;
+    renderLive(liveClock / 1000);
+  }
+  function startLive(justRendered = false) {
+    if (!idleEnabled || !settled || raf || disposed || !active) return;
+    if (!photo) capturePhoto(justRendered);
+    liveLast = -1;
+    raf = requestAnimationFrame(liveFrame);
+  }
+
   let clock = 0, last = -1, raf = 0, settled = false, firstFrame = false, disposed = false, started = false;
   function frame(now: number) {
     if (disposed) return;
@@ -1010,12 +1304,14 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     if (last >= 0) clock += Math.min(now - last, 250);
     last = now;
     const t = options.freezeAt ?? (options.instant ? tl.end : clock);
-    renderAt(t);
+    if (options.idleAt !== undefined) { capturePhoto(); renderLive(options.idleAt); }
+    else renderAt(t);
     if (!firstFrame) { firstFrame = true; options.onFirstFrame?.(); }
-    if (options.freezeAt !== undefined) { raf = 0; return; }
+    if (options.freezeAt !== undefined || options.idleAt !== undefined) { raf = 0; return; }
     if (t >= tl.end) {
       if (!settled) { settled = true; options.onSettled?.(); }
       raf = 0;
+      startLive(true);
       return;
     }
     raf = requestAnimationFrame(frame);
@@ -1027,29 +1323,88 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     composer.render();
   }
   function requestRender() {
-    if (raf || disposed || !started) return;
+    if (disposed || !started) return;
+    if (photo) { capturePhoto(); if (!raf) renderLive(liveClock / 1000); return; }
+    if (raf) return;
     if (settled || options.freezeAt !== undefined) renderAt(options.freezeAt ?? tl.end);
   }
+
+  /* Rigid parts that never move on their own (all the tubes of a treadmill, every bolt on an upright, the wall
+   * panels, the mullions…) are merged into one mesh per material inside their animated group. Same geometry,
+   * same transforms, same pixels — 356 → 213 meshes, about 40 % fewer draw calls per pass, which is what limits slower CPUs and phones. */
+  const keep = new Set<THREE.Object3D>([...animated, rackBase, backWall, glass, backdrop, outsideGround, coveLow, coveHigh, dbFrame, chevron, ...screens]);
+  function mergeRigid(root: THREE.Object3D) {
+    for (const child of [...root.children]) mergeRigid(child);
+    const buckets = new Map<string, THREE.Mesh[]>();
+    for (const c of root.children) {
+      if (!(c instanceof THREE.Mesh) || c instanceof THREE.InstancedMesh || c.children.length || keep.has(c) || Array.isArray(c.material)) continue;
+      const g = c.geometry as THREE.BufferGeometry;
+      const key = [c.material.uuid, c.castShadow, c.receiveShadow, g.index ? 1 : 0, Object.keys(g.attributes).sort().join()].join('|');
+      const list = buckets.get(key);
+      if (list) list.push(c); else buckets.set(key, [c]);
+    }
+    for (const list of buckets.values()) {
+      if (list.length < 2) continue;
+      const parts = list.map(m => { m.updateMatrix(); return m.geometry.clone().applyMatrix4(m.matrix); });
+      const merged = mergeGeometries(parts, false);
+      parts.forEach(g => g.dispose());
+      if (!merged) continue;
+      merged.computeBoundingSphere();
+      const one = mesh(track(merged), list[0].material as THREE.Material, list[0].castShadow, list[0].receiveShadow);
+      list.forEach(m => root.remove(m));
+      root.add(one);
+    }
+  }
+  mergeRigid(world);
 
   resize();
   tl.seek(0);
   applyLook();
-  texReady.then(() => {
+  /** Compile all shaders and upload all textures up front (canvas still invisible), so no piece hitches as it appears. */
+  async function warmUp() {
+    tl.seek(tl.end); applyLook(); applyCamera();
+    // Scene programs must be compiled for the composer's HalfFloat target (linear, no tone mapping), not the screen,
+    // or each material recompiles synchronously when its piece appears (~380 ms frozen per program on Direct3D).
+    const previous = renderer.getRenderTarget();
+    renderer.setRenderTarget(composer.readBuffer);
+    try { await renderer.compileAsync(scene, camera); } catch { /* falls back to compiling on first use */ }
+    renderer.setRenderTarget(previous);
+    try { await renderer.compileAsync(photoScene, orthoCam); await renderer.compileAsync(overlay, camera); } catch { /* compiled below */ }
+    if (disposed) return;
+    composer.render();
+    const warmDepth = new THREE.WebGLRenderTarget(4, 4, { depthTexture: new THREE.DepthTexture(4, 4) });
+    scene.overrideMaterial = depthOnly;
+    renderer.setRenderTarget(warmDepth); renderer.render(scene, camera); renderer.setRenderTarget(null);
+    scene.overrideMaterial = null;
+    warmDepth.dispose();
+    renderer.render(photoScene, orthoCam);
+    renderer.autoClear = false; renderer.render(overlay, camera); renderer.autoClear = true;
+    tl.seek(0); applyLook();
+  }
+  texReady.then(warmUp).then(() => {
     if (disposed) return;
     started = true;
+    last = -1;
     raf = requestAnimationFrame(frame);
   });
 
   return {
     setTheme(next) { theme = next; requestRender(); },
+    setActive(next) {
+      active = next;
+      if (next) startLive(); else if (raf && settled) { cancelAnimationFrame(raf); raf = 0; }
+    },
     resize() { resize(); requestRender(); },
     capture(type = 'image/webp', quality = 0.86) {
-      renderAt(options.freezeAt ?? tl.end);
+      if (options.idleAt !== undefined) { capturePhoto(); renderLive(options.idleAt); }
+      else renderAt(options.freezeAt ?? tl.end);
       return canvas.toDataURL(type, quality);
     },
     dispose() {
       disposed = true;
       if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener('pointermove', onPointer);
+      photo?.color.dispose(); photo?.depth.dispose();
       disposables.forEach(d => d.dispose());
       scene.traverse(o => { if (o instanceof THREE.InstancedMesh) o.dispose(); });
       renderer.dispose();
