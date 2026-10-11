@@ -4,6 +4,8 @@ const ready=(page:Page)=>page.locator('.site-header[data-ready]').waitFor({state
 const settled=(page:Page)=>page.waitForFunction(()=>document.documentElement.classList.contains('hero-settled'),null,{timeout:20000});
 
 test('first visit: empty stage, assembly, header arrives last',async({page})=>{
+ // The suite runs on SwiftShader; force the live scene so the assembly itself is exercised.
+ await page.addInitScript(()=>localStorage.setItem('aureon-force-webgl','1'));
  await page.goto('/');
  await expect(page.locator('#hero-title')).toBeVisible();
  // Rule: until the assembly settles, the header is hidden (sampled through the opening; timing-independent).
@@ -18,6 +20,13 @@ test('first visit: empty stage, assembly, header arrives last',async({page})=>{
  await settled(page);
  await expect(page.locator('.home-header')).toBeVisible();
  await expect(page.getByText(/replay/i)).toHaveCount(0);
+});
+test('software WebGL shows the finished still at once instead of a slow assembly',async({page})=>{
+ await page.goto('/');
+ await expect(page.locator('.hero-media')).toHaveClass(/is-fallback/,{timeout:20000});
+ await expect(page.locator('.hero-media')).not.toHaveClass(/is-live/);
+ await expect(page.locator('.home-header')).toBeVisible();
+ await expect(page.locator('#hero-title')).toBeVisible();
 });
 test('hero fills the first viewport and nothing overflows horizontally',async({page})=>{
  for(const [width,height] of [[320,667],[390,844],[768,1024],[1366,768],[1440,900]]){

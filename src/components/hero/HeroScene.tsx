@@ -10,6 +10,22 @@ function effectiveTheme(): HeroTheme {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
+/**
+ * True when WebGL would run on a software renderer (GPU process crashed, GPU blocklisted, no GPU, VM): the scene would
+ * crawl there, so the finished still is shown instead. `aureon-force-webgl` in localStorage overrides it for tests.
+ */
+function softwareRendered(): boolean {
+  try { if (localStorage.getItem('aureon-force-webgl') === '1') return false; } catch { /* storage may be blocked */ }
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2', {failIfMajorPerformanceCaveat: true});
+    if (!gl) return true;
+    const info = gl.getExtension('WEBGL_debug_renderer_info');
+    const name = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '';
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return /swiftshader|llvmpipe|softpipe|basic render|software|warp/i.test(name);
+  } catch { return false; }
+}
+
 declare global { interface Window { __aureonHeroCapture?: (type?: string, quality?: number) => string } }
 
 /** Real-time WebGL assembly. Loaded after first paint; the HTML hero never depends on it. */
@@ -32,6 +48,8 @@ export function HeroScene() {
     let api: GymSceneApi | null = null;
     let cancelled = false;
     const fallback = () => { media?.classList.add('is-fallback'); root.classList.add('hero-settled'); };
+    // Capture routes skip this so stills and evidence frames can still be rendered headlessly.
+    if (!capture && softwareRendered()) { fallback(); return; }
     const firstFrame = () => {
       media?.classList.add('is-live');
       root.classList.add('hero-running');
