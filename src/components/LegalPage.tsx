@@ -5,6 +5,7 @@ import {dictionaries, policySlugs, type Locale, type PolicySlug} from '@/content
 import {pathFor} from '@/lib/routes';
 import {releaseReadyByConfig} from '@/lib/readiness';
 
+const SCENE: Record<PolicySlug, string> = {privacy: 'entrance', terms: 'plates', imprint: 'ceiling', disclaimer: 'bench', cookies: 'trainer'};
 const num = (i: number) => String(i + 1).padStart(2, '0');
 
 export function LegalPage({locale, slug}: {locale: Locale; slug: PolicySlug}) {
@@ -13,6 +14,7 @@ export function LegalPage({locale, slug}: {locale: Locale; slug: PolicySlug}) {
   const status = releaseReadyByConfig ? d.approvedLabel : d.legalStatus;
   return <DocumentShell locale={locale} slug={slug}><main id="main" className="legal">
     <section className="legal-hero">
+      <div className="legal-hero-media" aria-hidden="true"><img src={`/assets/scenes/${SCENE[slug]}-dark.webp`} alt="" width={1200} height={1500} decoding="async"/></div>
       <div className="shell legal-hero-in">
         <p className="eyebrow s-kicker"><span className="s-num">AUREON</span><span className="s-rule"/>{d.legal}</p>
         <h1>{d.legalTitles[slug]}</h1>

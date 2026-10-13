@@ -782,6 +782,11 @@ html:not(.js) .menu-button:not(.menu-fallback){display:none}
 .legal{background:var(--canvas)}
 .legal-hero{--lh-bg:#0f1411;--lh-ink:#f6f2e8;--lh-muted:#b9c1b6;--lh-gold:#e1b26d;position:relative;padding-block:clamp(72px,9vw,132px) clamp(40px,5vw,64px);background:var(--lh-bg);color:var(--lh-ink)}
 .legal-hero::before{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:linear-gradient(90deg,transparent,var(--lh-gold) 18%,color-mix(in srgb,var(--lh-gold) 30%,transparent) 55%,transparent)}
+.legal-hero{overflow:hidden;isolation:isolate}
+.legal-hero-media{position:absolute;inset:0 0 0 auto;width:min(56%,980px);z-index:-1;pointer-events:none;-webkit-mask-image:linear-gradient(90deg,transparent 0,#000a 38%,#000 70%);mask-image:linear-gradient(90deg,transparent 0,#000a 38%,#000 70%)}
+.legal-hero-media::after{content:"";position:absolute;inset:0;background:linear-gradient(0deg,var(--lh-bg) 0,transparent 30%),linear-gradient(180deg,var(--lh-bg) 0,transparent 22%)}
+.legal-hero-media img{width:100%;height:100%;object-fit:cover;object-position:50% 45%;opacity:.62;filter:saturate(.9)}
+@media(max-width:900px){.legal-hero-media{inset:0;width:100%;-webkit-mask-image:linear-gradient(180deg,transparent 0,#0007 45%,#000 100%);mask-image:linear-gradient(180deg,transparent 0,#0007 45%,#000 100%)}.legal-hero-media img{opacity:.34}}
 .legal-hero-in.shell{max-width:calc(260px + clamp(44px,7vw,120px) + 780px)}.legal-hero-in>*{max-width:900px}
 .legal-hero .s-kicker{color:var(--lh-gold)}
 .legal-hero h1{margin-top:6px;font-size:clamp(42px,6vw,92px);font-weight:730;letter-spacing:-.066em;line-height:1.02;text-wrap:balance;overflow-wrap:anywhere}
@@ -856,7 +861,7 @@ html:not(.js) .menu-button:not(.menu-fallback){display:none}
 }
 @media(max-width:380px){html.js .legal-toc{margin-inline:-15px}.toc-mobile button,.toc-mobile-list{padding-inline:15px}}
 @media print{
-  .legal-toc,.legal-switch,.menu-layer,.hero-media{display:none!important}
+  .legal-toc,.legal-switch,.menu-layer,.hero-media,.legal-hero-media{display:none!important}
   .legal-hero{background:none;color:#111;padding:10px 0}.legal-hero::before{display:none}.legal-hero .s-kicker,.legal-status{color:#111;box-shadow:none;padding:0}.legal-hero .legal-lead,.legal-meta{color:#222}.legal-body{display:block}
   .legal-chapter{break-inside:avoid;grid-template-columns:40px 1fr}
   .legal-chapter p,.legal-lead,.draft-notice p{color:#222}
