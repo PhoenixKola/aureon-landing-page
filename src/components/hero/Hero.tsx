@@ -14,11 +14,12 @@ function HeroStill({theme}: {theme: 'dark' | 'light'}) {
 }
 
 export function Hero({d}: {d: Dictionary}) {
-  return <section className="hero" aria-labelledby="hero-title">
+  return <div className="hero-runway"><section className="hero" aria-labelledby="hero-title">
     <div className="hero-media" role="img" aria-label={d.heroImage}>
       <HeroStill theme="dark"/><HeroStill theme="light"/>
       <HeroScene/>
       <div className="hero-shade" aria-hidden="true"/>
+      <div className="hero-handoff" aria-hidden="true"/>
     </div>
     <div className="hero-inner shell">
       <div className="hero-copy">
@@ -35,5 +36,5 @@ export function Hero({d}: {d: Dictionary}) {
       <span className="stage-tag"><BrandMark/><span>{d.stageCaption}</span></span>
       <a className="scroll-cue" href="#platform"><span>{d.scroll}</span><ArrowDown strokeWidth={1.6} aria-hidden="true"/></a>
     </div>
-  </section>;
+  </section></div>;
 }

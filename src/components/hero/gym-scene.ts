@@ -48,6 +48,8 @@ export interface GymSceneApi {
   resize(): void;
   /** Pause / resume the living loop (e.g. when the hero scrolls out of view). */
   setActive(active: boolean): void;
+  /** Scroll handoff 0..1: pushes the settled shot in toward the operational hub and lights the gold path. */
+  setStory(progress: number): void;
   capture(type?: string, quality?: number): string;
   dispose(): void;
 }
@@ -1040,7 +1042,7 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     tColor: { value: null as THREE.Texture | null },
     tDepth: { value: null as THREE.Texture | null },
     near: { value: camera.near }, far: { value: camera.far },
-    shift: { value: new THREE.Vector2() }, zoom: { value: 1 }, focus: { value: 8 },
+    shift: { value: new THREE.Vector2() }, zoom: { value: 1 }, zc: { value: new THREE.Vector2() }, focus: { value: 8 },
     time: { value: 0 }, amp: { value: 0 }, head: { value: -1 },
     boxMin: { value: new THREE.Vector3() }, boxMax: { value: new THREE.Vector3() },
     dustColor: { value: raw('#ffd9a6') }, dustOpacity: { value: 0.9 }, size: { value: 10 },
@@ -1048,22 +1050,22 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
   };
   const DEPTH = `uniform sampler2D tDepth; uniform float near; uniform float far;
     float sceneDepth(vec2 uv) { float z = texture2D(tDepth, uv).x * 2.0 - 1.0; return (2.0 * near * far) / (far + near - z * (far - near)); }`;
-  const DISPLACE = `uniform vec2 shift; uniform float zoom; uniform float focus; varying vec2 vSrc; varying float vZ;
+  const DISPLACE = `uniform vec2 shift; uniform float zoom; uniform vec2 zc; uniform float focus; varying vec2 vSrc; varying float vZ;
     vec4 displaced(vec4 mv) {
       vec4 clip = projectionMatrix * mv;
       vZ = -mv.z;
       vSrc = clip.xy / clip.w * 0.5 + 0.5;
       clip.xy += 2.0 * shift * (1.0 / vZ - 1.0 / focus) * clip.w;
-      clip.xy *= zoom;
+      clip.xy = ((clip.xy / clip.w - zc) * zoom + zc) * clip.w;
       return clip;
     }`;
   const OCCLUDE = `${DEPTH} varying vec2 vSrc; varying float vZ;`;
   const photoMat = track(new THREE.ShaderMaterial({
     uniforms: live, depthTest: false, depthWrite: false,
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
-    fragmentShader: `${DEPTH} uniform sampler2D tColor; uniform vec2 shift; uniform float zoom; uniform float focus; varying vec2 vUv;
+    fragmentShader: `${DEPTH} uniform sampler2D tColor; uniform vec2 shift; uniform float zoom; uniform vec2 zc; uniform float focus; varying vec2 vUv;
       void main() {
-        vec2 uv = (vUv - 0.5) / zoom + 0.5;
+        vec2 uv = (vUv - (zc * 0.5 + 0.5)) / zoom + (zc * 0.5 + 0.5);
         vec2 s = uv;
         for (int i = 0; i < 3; i++) s = uv - shift * (1.0 / sceneDepth(clamp(s, 0.0, 1.0)) - 1.0 / focus);
         gl_FragColor = texture2D(tColor, clamp(s, 0.0005, 0.9995));
@@ -1213,6 +1215,8 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
   const depthOnly = track(new THREE.MeshBasicMaterial({ colorWrite: false }));
   let photo: { color: THREE.FramebufferTexture; depth: THREE.WebGLRenderTarget } | null = null;
   const focusPoint = new THREE.Vector3(0.2, 1.3, -1.15);
+  const hubNdc = new THREE.Vector3();
+  let storyTarget = 0, storyNow = 0;
   const bufSize = new THREE.Vector2();
 
   /** Render the settled frame at full quality once, then keep its pixels and depth for the living loop. */
@@ -1236,6 +1240,7 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     live.tDepth.value = depth.depthTexture;
     live.near.value = camera.near; live.far.value = camera.far;
     live.focus.value = camera.position.distanceTo(focusPoint);
+    hubNdc.copy(focusPoint).project(camera);
     live.size.value = 0.02 * (bufSize.y / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
     const [lo, hi] = DUST_BOX[theme];
     live.boxMin.value.copy(lo); live.boxMax.value.copy(hi);
@@ -1267,13 +1272,24 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
     const dy = a * (k * Math.sin(t * 0.13 + 1) * 0.012 - py * 0.02);
     const tanY = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2), tanX = tanY * camera.aspect;
     live.shift.value.set(-dx / (2 * tanX), -dy / (2 * tanY));
-    live.zoom.value = 1 + a * (0.016 + 0.005 * Math.sin(t * 0.09));
+    storyNow += (storyTarget - storyNow) * 0.14;
+    if (Math.abs(storyTarget - storyNow) < 0.0004) storyNow = storyTarget;
+    const sp = ease.inOutSine(clamp01(storyNow));
+    live.zoom.value = (1 + a * (0.016 + 0.005 * Math.sin(t * 0.09))) * (1 + sp * (mobile ? 0.55 : 0.85));
+    live.zc.value.set(hubNdc.x * sp, hubNdc.y * sp);
     live.time.value = t;
     live.amp.value = a;
     const phase = ((t + 1.5) % 8) / 8;
-    coveUniforms.head.value = phase < 0.3 ? -0.1 + (phase / 0.3) * 1.15 : -1;
-    const chev = (phase - 0.27) / 0.28;
-    live.head.value = chev >= 0 && chev < 1 ? -0.15 + ease.inOutSine(chev) * 1.3 : -1;
+    if (storyNow > 0.015) {
+      // Scrolling drives the gold path: it travels the cove and the chevron as the camera moves in.
+      const run = clamp01(storyNow * 1.15);
+      coveUniforms.head.value = -0.1 + run * 1.15;
+      live.head.value = -0.15 + clamp01((storyNow - 0.25) / 0.7) * 1.3;
+    } else {
+      coveUniforms.head.value = phase < 0.3 ? -0.1 + (phase / 0.3) * 1.15 : -1;
+      const chev = (phase - 0.27) / 0.28;
+      live.head.value = chev >= 0 && chev < 1 ? -0.15 + ease.inOutSine(chev) * 1.3 : -1;
+    }
     renderer.setRenderTarget(null);
     renderer.render(photoScene, orthoCam);
     renderer.autoClear = false;
@@ -1394,6 +1410,7 @@ export function createGymScene(canvas: HTMLCanvasElement, options: GymSceneOptio
       active = next;
       if (next) startLive(); else if (raf && settled) { cancelAnimationFrame(raf); raf = 0; }
     },
+    setStory(p) { storyTarget = clamp01(p); },
     resize() { resize(); requestRender(); },
     capture(type = 'image/webp', quality = 0.86) {
       if (options.idleAt !== undefined) { capturePhoto(); renderLive(options.idleAt); }

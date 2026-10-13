@@ -70,6 +70,7 @@ export function HeroScene() {
           onFirstFrame: firstFrame,
           onSettled: () => root.classList.add('hero-settled'),
         });
+        api.setStory(story);
       } catch { fallback(); return; }
       if (capture) window.__aureonHeroCapture = (type, q) => api!.capture(type, q);
     }).catch(fallback);
@@ -85,6 +86,9 @@ export function HeroScene() {
     const viewObserver = new IntersectionObserver(([entry]) => api?.setActive(entry.isIntersecting));
     viewObserver.observe(canvas);
     canvas.addEventListener('webglcontextlost', fallback);
+    let story = 0;
+    const onStory = (e: Event) => { story = (e as CustomEvent<number>).detail; api?.setStory(story); };
+    window.addEventListener('aureon:story', onStory);
 
     return () => {
       cancelled = true;
@@ -93,6 +97,7 @@ export function HeroScene() {
       resizeObserver.disconnect();
       viewObserver.disconnect();
       canvas.removeEventListener('webglcontextlost', fallback);
+      window.removeEventListener('aureon:story', onStory);
       api?.dispose();
     };
   }, []);

@@ -1,5 +1,4 @@
 import {ArrowRight, FileWarning} from 'lucide-react';
-import {BrandMark} from '@/components/icons';
 import {DocumentShell} from '@/components/DocumentShell';
 import {LegalToc} from '@/components/LegalToc';
 import {dictionaries, policySlugs, type Locale, type PolicySlug} from '@/content/dictionary';
@@ -14,24 +13,17 @@ export function LegalPage({locale, slug}: {locale: Locale; slug: PolicySlug}) {
   const status = releaseReadyByConfig ? d.approvedLabel : d.legalStatus;
   return <DocumentShell locale={locale} slug={slug}><main id="main" className="legal">
     <section className="legal-hero">
-      <div className="shell legal-hero-grid">
-        <div className="legal-hero-copy">
-          <p className="eyebrow s-kicker"><span className="s-num">AUREON</span><span className="s-rule"/>{d.legal}</p>
-          <h1>{d.legalTitles[slug]}</h1>
-          <p className="legal-lead">{d.legalLead[slug]}</p>
-        </div>
-        <aside className="legal-id" aria-label={d.docLabel}>
-          <p className="legal-id-head"><span className="legal-id-mark"><BrandMark/></span>{d.docLabel}</p>
-          <dl>
-            <div><dt>{d.docLabel}</dt><dd>{d.legalTitles[slug]}</dd></div>
-            <div><dt>{d.language}</dt><dd>{d.lang}</dd></div>
-            <div><dt>{d.chaptersLabel}</dt><dd>{num(chapters.length - 1)}</dd></div>
-            <div><dt>{d.statusLabel}</dt><dd className={releaseReadyByConfig ? undefined : 'legal-id-draft'}>{status}</dd></div>
-          </dl>
-          <ol className="legal-index">
-            {policySlugs.map((s, i) => <li key={s}><a href={pathFor(locale, s)} aria-current={s === slug ? 'page' : undefined}><span>{num(i)}</span>{d.legalTitles[s]}</a></li>)}
-          </ol>
-        </aside>
+      <div className="shell legal-hero-in">
+        <p className="eyebrow s-kicker"><span className="s-num">AUREON</span><span className="s-rule"/>{d.legal}</p>
+        <h1>{d.legalTitles[slug]}</h1>
+        <p className="legal-lead">{d.legalLead[slug]}</p>
+        <p className="legal-meta">
+          <span className={releaseReadyByConfig ? 'legal-status' : 'legal-status is-draft'}>{status}</span>
+          <span>{d.lang}</span>
+        </p>
+        <nav className="legal-switch" aria-label={d.legal}>
+          {policySlugs.map((s, i) => <a key={s} href={pathFor(locale, s)} aria-current={s === slug ? 'page' : undefined}><span>{num(i)}</span>{d.legalTitles[s]}</a>)}
+        </nav>
       </div>
     </section>
     <div className="shell legal-body">
